@@ -1,0 +1,24 @@
+# gitingest config — Claude Code and QMD: Persistent Knowledge Architecture
+notebooklm_id: "55c988d8-818d-4ed9-b08b-12d6c697ff5f"
+
+repos:
+  # Karpathy's LLM Wiki - canonical idea file
+  - url: "https://gist.githubusercontent.com/karpathy/442a6bf555914893e9891c11519de94f/raw"
+
+  # Pre-configured Obsidian vault + Claude Code starter
+  - url: "https://github.com/heyitsnoah/claudesidian"
+
+  # MCP plugin for Claude Code/Desktop vault access
+  - url: "https://github.com/iansinnott/obsidian-claude-code-mcp"
+
+  # LLM Wiki v2 - extension with agentmemory patterns
+  - url: "https://gist.githubusercontent.com/rohitg00/2067ab416f7bbe447c1977edaaa681e2/raw"
+
+  # Local LLM helper + CLAUDE.md for Obsidian
+  - url: "https://github.com/manimohans/obsidian-local-llm-helper"
+
+  # Claude Code skill for vault API
+  - url: "https://github.com/hancengiz/cc-obsidian-vault-api-skill"
+
+  # Basic wiki template (plugins/config)
+  - url: "https://github.com/Magic-wei/obsidian_wiki_template"

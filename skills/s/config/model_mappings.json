@@ -1,0 +1,46 @@
+{
+  "description": "Model ID mappings for leaderboard normalization. Maps provider-specific model names to canonical leaderboard model IDs.",
+  "note": "CLI providers often have different model names than the API models in arena.ai leaderboard. These mappings map CLI models to their closest leaderboard equivalents.",
+  "mappings": {
+    "gemini-cli": {
+      "gemini-2.5-flash": "google/gemini-2.5-flash",
+      "gemini-pro": "google/gemini-3-pro"
+    },
+    "qwen-cli": {
+      "qwen-coder": "qwen-cli/qwen-coder",
+      "qwen-instruct": "qwen-cli/qwen-instruct"
+    },
+    "chutes": {
+      "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-TEE": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8-TEE",
+      "deepseek-ai/DeepSeek-V3-0324-TEE": "deepseek-ai/DeepSeek-V3-0324-TEE",
+      "zai-org/GLM-4.7-TEE": "zhipu/glm-4.7",
+      "zai-org/GLM-4.7-FP8": "zhipu/glm-4.7",
+      "zai-org/GLM-5-TEE": "zhipu/glm-5",
+      "MiniMaxAI/MiniMax-M2.5-TEE": "minimax/m2.5",
+      "MiniMaxAI/MiniMax-M2.1-TEE": "minimax/m2.1-preview"
+    },
+    "groq": {
+      "llama-3.3-70b-versatile": "meta-llama/llama-3.3-70b-versatile"
+    },
+    "minimax": {
+      "MiniMax-M2.1-TEE": "minimax/m2.1-preview",
+      "MiniMax-Text-01": "minimax/m2.5"
+    },
+    "nvidia": {
+      "z-ai/glm4.7": "zhipu/glm-4.7",
+      "z-ai/glm5": "zhipu/glm-5",
+      "minimaxai/minimax-m2.1": "minimax/m2.1-preview",
+      "minimaxai/minimax-m2.5": "minimax/m2.5"
+    },
+    "openrouter": {
+      "google/gemma-3-27b-it:free": "google/gemma-3-27b-it:free",
+      "zhipu/glm-4.7": "zhipu/glm-4.7"
+    }
+  },
+  "fallback_rules": {
+    "gemini-pro": "google/gemini-3-pro",
+    "gemini-flash": "google/gemini-3-flash",
+    "qwen": "qwen/qwen-instruct",
+    "llama": "meta-llama/llama-3.3-70b-instruct"
+  }
+}

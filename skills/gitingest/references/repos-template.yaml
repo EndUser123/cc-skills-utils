@@ -1,0 +1,28 @@
+# gitingest config — list of GitHub repos to ingest into NotebookLM
+#
+# notebooklm_id: target NotebookLM notebook ID (from the notebook URL)
+# repos:
+#   - url: "https://github.com/owner/repo"
+#     path: ""          # optional: sparse checkout path (empty = full repo)
+#     branch: "main"    # optional: defaults to "main"
+#     skip: false       # optional: set true to skip this repo
+
+# ext-Agentic-Platforms: 3c6d83d9-9945-43d7-a6a0-d8a446ce9d3a
+# ext-Tools-and-Libraries: bcd576b2-83e8-4732-b42c-4efccc9c5d57
+# Video Pipeline: 84f90a47-9448-4652-82e1-c8dec495fc68
+  - url: "https://github.com/bbor98/movieapp-mvvm-clean-architecture"
+  - url: "https://github.com/marcoradocchia/youterm"
+  - url: "https://github.com/SeoulSKY/ytnoti"
+  - url: "https://github.com/Aleksbgbg/YouTube-Downloader"
+  - url: "https://github.com/MonsterTechnoGit/YouTube-API-YouTube-API-to-fetch-all-videos-on-a-channel"
+  - url: "https://github.com/pH-7/youtube-to-medium-blog-posts-automation"
+  - url: "https://github.com/neeleshpandey/AutomatedNewsChannel"
+  - url: "https://github.com/SweetIceLolly/youtube-playlist-manager"
+  - url: "https://github.com/mareco94/YouTubeDataAPI"
+  - url: "https://github.com/amastis/YouTube-data-scraper"
+  - url: "https://github.com/jdepoix/youtube-transcript-api"
+  - url: "https://github.com/code-charity/youtube"
+  - url: "https://github.com/NotJoeMartinez/yt-fts"
+  - url: "https://github.com/h0lg/SubTubular"
+  - url: "https://github.com/bisakhmondal/YouTube-Elasticsearch-Indexer"
+  - url: "https://github.com/anvakatime/FullTS"

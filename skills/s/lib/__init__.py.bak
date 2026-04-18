@@ -1,0 +1,54 @@
+"""
+Brainstorm Module - Multi-Perspective Ideation System
+
+This module provides a framework for generating and evaluating ideas from multiple
+perspectives using specialized AI agents. It implements a multi-agent system where
+each agent represents a different thinking style or persona.
+
+Key Components:
+- Models: Data structures for ideas, evaluations, and results
+- Agents: Base classes and specialized agent implementations
+- Orchestration: Coordination of multi-agent brainstorming sessions
+
+Example:
+    ```python
+    from brainstorm import BrainstormContext, BrainstormOrchestrator
+
+    context = BrainstormContext(
+        topic="Develop a sustainable transportation system",
+        num_ideas=10,
+        personas=["innovator", "pragmatist", "critic"]
+    )
+
+    orchestrator = BrainstormOrchestrator()
+    result = await orchestrator.brainstorm(context)
+
+    print(f"Generated {len(result.ideas)} ideas")
+    for idea in result.top_ideas(5):
+        print(f"- {idea.content} (Score: {idea.score})")
+    ```
+
+"""
+from __future__ import annotations
+
+__version__ = "1.0.0"
+__author__ = "CSF Development Team"
+
+from .agents.base import Agent, AgentLLMClient
+from .models import (
+    BrainstormContext,
+    BrainstormResult,
+    Evaluation,
+    Idea,
+)
+from .orchestrator import BrainstormOrchestrator
+
+__all__ = [
+    "Agent",
+    "AgentLLMClient",
+    "BrainstormContext",
+    "BrainstormOrchestrator",
+    "BrainstormResult",
+    "Evaluation",
+    "Idea",
+]

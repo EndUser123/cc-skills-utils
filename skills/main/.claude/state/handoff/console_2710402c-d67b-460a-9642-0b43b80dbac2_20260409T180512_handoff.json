@@ -1,0 +1,141 @@
+{
+  "resume_snapshot": {
+    "schema_version": 2,
+    "snapshot_id": "0ecb6576-064e-4819-b8ce-eb55d395fd76",
+    "terminal_id": "console_2710402c-d67b-460a-9642-0b43b80dbac2",
+    "source_session_id": "6a6cc2e1-cd19-403b-a08b-090a816ca3c7",
+    "created_at": "2026-04-09T18:05:12.272092+00:00",
+    "expires_at": "2026-04-09T18:25:12.272092+00:00",
+    "status": "pending",
+    "goal": "what do we need to change so that I don't see that in the future if I don't ask for it or don't need it?",
+    "current_task": "what do we need to change so that I don't see that in the future if I don't ask for it or don't need it?",
+    "progress_percent": 65,
+    "progress_state": "in_progress",
+    "blockers": [],
+    "active_files": [
+      "C:\\Users\\brsth\\.claude\\plans\\plan-adr-20260407-qmd-wiki-skill.md",
+      "P:/packages/search-research/core/backends/local/base_local_backend.py",
+      "P:/packages/search-research/core/backends/local/__init__.py",
+      "P:/packages/search-research/core/config.py",
+      "P:/packages/search-research/core/unified_router.py",
+      "P:/packages/search-research/core/models.py",
+      "P:/packages/search-research/core/router_async.py",
+      "P:/packages/search-research/tests/test_kg_backend.py",
+      "P:/.claude/skills/qmd-wiki/SKILL.md",
+      "P:/.claude/skills/skill-ship/references/skill-frontmatter-fields.md"
+    ],
+    "pending_operations": [
+      {
+        "type": "skill",
+        "target": "skill: code",
+        "state": "in_progress"
+      },
+      {
+        "type": "read",
+        "target": "C:\\Users\\brsth\\.claude\\plans\\plan-adr-20260407-qmd-wiki-skill.md",
+        "state": "in_progress"
+      },
+      {
+        "type": "command",
+        "target": "git -C \"P:/\" log --oneline -10 -- .claude/skills/code/",
+        "state": "in_progress"
+      },
+      {
+        "type": "command",
+        "target": "git -C \"P:/\" status --short -- .claude/skills/qmd-wiki/ .claude/skills/search-re",
+        "state": "in_progress"
+      },
+      {
+        "type": "command",
+        "target": "ls \"P:/.claude/skills/\" 2>/dev/null | head -20",
+        "state": "in_progress"
+      }
+    ],
+    "next_step": "Resume skill on skill: code.",
+    "decision_refs": [
+      "dec_1c6d822fe27f46109445617bbcf143d2",
+      "dec_164a0e3119724b859465f722da2dd961"
+    ],
+    "evidence_refs": [
+      "ev_5771e5c5152442868ee0ac42a0ce4381",
+      "ev_86f81612eaac4a859031c65875480c70",
+      "ev_22ed9e8c429e429281736b5ca00edae7",
+      "ev_88a6a217cc714deeba19de83d6a6e2ca",
+      "ev_d3159a198a4b4e298d3289d13712a609",
+      "ev_c77bc228e28045e483e9eee125644d78"
+    ],
+    "transcript_path": "C:\\Users\\brsth\\.claude\\projects\\P--\\6a6cc2e1-cd19-403b-a08b-090a816ca3c7.jsonl",
+    "message_intent": "question",
+    "quality_score": 0.4,
+    "tasks_snapshot": []
+  },
+  "decision_register": [
+    {
+      "id": "dec_1c6d822fe27f46109445617bbcf143d2",
+      "kind": "anti_goal",
+      "summary": "That was a background task notification from the `/rns` skill's internal extraction — it ran as a background command to read the session transcript, and Claude Code surfaces background task completions automatically. The `/rns` skill documentation flags this as a known issue: *\"When RNS generates output while a background command is running, Claude Code may re-display the assistant's message when the background command completes.\"* You shouldn't have seen it — it was an internal implementation detail of how `/rns` reads the transcript. I'll avoid using background commands for session analysis in future `/rns` calls to prevent this noise.",
+      "details": "That was a background task notification from the `/rns` skill's internal extraction — it ran as a background command to read the session transcript, and Claude Code surfaces background task completions automatically. The `/rns` skill documentation flags this as a known issue: *\"When RNS generates output while a background command is running, Claude Code may re-display the assistant's message when the background command completes.\"* You shouldn't have seen it — it was an internal implementation detail of how `/rns` reads the transcript. I'll avoid using background commands for session analysis in future `/rns` calls to prevent this noise.",
+      "priority": "medium",
+      "applies_when": "Continue the current task after compact.",
+      "source_refs": [
+        "ev_5771e5c5152442868ee0ac42a0ce4381"
+      ]
+    },
+    {
+      "id": "dec_164a0e3119724b859465f722da2dd961",
+      "kind": "constraint",
+      "summary": "what do we need to change so that I don't see that in the future if I don't ask for it or don't need it?",
+      "details": "what do we need to change so that I don't see that in the future if I don't ask for it or don't need it?",
+      "priority": "high",
+      "applies_when": "Continue the current task after compact.",
+      "source_refs": [
+        "ev_5771e5c5152442868ee0ac42a0ce4381"
+      ]
+    }
+  ],
+  "evidence_index": [
+    {
+      "id": "ev_5771e5c5152442868ee0ac42a0ce4381",
+      "type": "transcript",
+      "label": "Current compact transcript",
+      "path": "C:\\Users\\brsth\\.claude\\projects\\P--\\6a6cc2e1-cd19-403b-a08b-090a816ca3c7.jsonl",
+      "content_hash": "sha256:9d7a6507a929e5a1c203b6cd7914955607d9c633b15a2bcbb54634c1b597b572"
+    },
+    {
+      "id": "ev_86f81612eaac4a859031c65875480c70",
+      "type": "file",
+      "label": "plan-adr-20260407-qmd-wiki-skill.md",
+      "path": "C:\\Users\\brsth\\.claude\\plans\\plan-adr-20260407-qmd-wiki-skill.md",
+      "content_hash": "sha256:92b4806e1b90563437ad1e96e97cd727ac154ce274c4132b2986bd4a37452736"
+    },
+    {
+      "id": "ev_22ed9e8c429e429281736b5ca00edae7",
+      "type": "file",
+      "label": "base_local_backend.py",
+      "path": "P:\\packages\\search-research\\core\\backends\\local\\base_local_backend.py",
+      "content_hash": "sha256:a06466a7707657ab347f9f9235d2b8f0959199b1ec57ea94a66a46e40daec427"
+    },
+    {
+      "id": "ev_88a6a217cc714deeba19de83d6a6e2ca",
+      "type": "file",
+      "label": "__init__.py",
+      "path": "P:\\packages\\search-research\\core\\backends\\local\\__init__.py",
+      "content_hash": "sha256:fd8ba98a2805654f09da387a657afa638df57f9d0431b3531436c97365374641"
+    },
+    {
+      "id": "ev_d3159a198a4b4e298d3289d13712a609",
+      "type": "file",
+      "label": "config.py",
+      "path": "P:\\packages\\search-research\\core\\config.py",
+      "content_hash": "sha256:9a88d1f31568ed2fb604b0b43251ddba56acf9a0160491ba229dfdf98ca90e1e"
+    },
+    {
+      "id": "ev_c77bc228e28045e483e9eee125644d78",
+      "type": "file",
+      "label": "unified_router.py",
+      "path": "P:\\packages\\search-research\\core\\unified_router.py",
+      "content_hash": "sha256:5b84d8af7c9def9dc64133431bb5aa32d778d311dfb981cc590ebb78cb957c17"
+    }
+  ],
+  "checksum": "sha256:5047c82889b528440bf2a97354540c067373905f013799f5b5479c2602cb084b"
+}

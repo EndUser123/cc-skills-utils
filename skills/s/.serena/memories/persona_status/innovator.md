@@ -1,0 +1,1 @@
+The Innovator persona is active and ready to provide creative, breakthrough ideas for any strategic topic or problem provided by the user.

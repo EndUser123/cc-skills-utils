@@ -1,0 +1,1487 @@
+{
+  "timestamp": "2026-03-29T15:09:08.264515",
+  "summary": {
+    "total": 211,
+    "healthy": 211,
+    "with_issues": 0
+  },
+  "skills": [
+    {
+      "skill": "acef",
+      "lines": 103,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "adf",
+      "lines": 193,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-api",
+      "lines": 144,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-apiv2",
+      "lines": 118,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-chutes",
+      "lines": 143,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-cli",
+      "lines": 93,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-groq",
+      "lines": 114,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-mistral",
+      "lines": 107,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-models",
+      "lines": 136,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-nvidia",
+      "lines": 111,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ai-openrouter",
+      "lines": 159,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "aid",
+      "lines": 140,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "all",
+      "lines": 115,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "analytics",
+      "lines": 170,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "apply_safety_patterns",
+      "lines": 127,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "arch",
+      "lines": 290,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "artifact-add",
+      "lines": 115,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "artifact-audit",
+      "lines": 132,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "artifact-done",
+      "lines": 109,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ask",
+      "lines": 234,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "av",
+      "lines": 163,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "bgkill",
+      "lines": 98,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "catch-22-detection",
+      "lines": 69,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cb",
+      "lines": 65,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cco",
+      "lines": 204,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cfg",
+      "lines": 159,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "chat-friction-analysis",
+      "lines": 302,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "checkpoint-delete",
+      "lines": 82,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "checkpoint-diff",
+      "lines": 72,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "checkpoint-list",
+      "lines": 66,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "checkpoint-restore",
+      "lines": 68,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "chs",
+      "lines": 123,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cks",
+      "lines": 103,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cks-usage",
+      "lines": 130,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cleanup",
+      "lines": 185,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "clear-notifications",
+      "lines": 76,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "clear_restore",
+      "lines": 73,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "code",
+      "lines": 304,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "code-analyzer-eval0",
+      "lines": 74,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "code-flow-visualizer",
+      "lines": 37,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "code-review",
+      "lines": 208,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "code-reviewer-business-logic",
+      "lines": 190,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "code-typescript",
+      "lines": 181,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "codebase-to-course",
+      "lines": 267,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cognitive-stack",
+      "lines": 134,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cognitive-stack-production",
+      "lines": 122,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "command-create",
+      "lines": 125,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "command-enhance",
+      "lines": 112,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "compose-npm-pip",
+      "lines": 127,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "concept-mapper",
+      "lines": 113,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "constitutional-patterns",
+      "lines": 278,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "constraints",
+      "lines": 69,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "context-status",
+      "lines": 94,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "context7",
+      "lines": 87,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "critical-code-reviewer",
+      "lines": 195,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "critique",
+      "lines": 273,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "csaf",
+      "lines": 62,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "csda",
+      "lines": 95,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "csda-concept",
+      "lines": 61,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "csf-nip-dev",
+      "lines": 157,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "csf-nip-integration",
+      "lines": 210,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cwo",
+      "lines": 218,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "cwo-orchestrator",
+      "lines": 177,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "daemon",
+      "lines": 174,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "data-processor",
+      "lines": 111,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "data-processor-v2",
+      "lines": 54,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "data-safety-vcs",
+      "lines": 144,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "deliberate-changes",
+      "lines": 94,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "deps",
+      "lines": 146,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "diagnose",
+      "lines": 201,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "diffbro",
+      "lines": 151,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "discover",
+      "lines": 175,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "disler-start",
+      "lines": 93,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "disler-stop",
+      "lines": 73,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "dne",
+      "lines": 315,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "doc-to-skill",
+      "lines": 182,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "docs",
+      "lines": 188,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "docs-validate",
+      "lines": 184,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "dpef",
+      "lines": 164,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "dream",
+      "lines": 137,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "evidence-applicability",
+      "lines": 69,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "evidence-tiers",
+      "lines": 62,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "evolve",
+      "lines": 225,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "exec",
+      "lines": 125,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "execution-clarity",
+      "lines": 142,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "file-relocation-recovery",
+      "lines": 72,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "flow",
+      "lines": 119,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "garden",
+      "lines": 94,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "git",
+      "lines": 141,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "git-conventional-commits",
+      "lines": 179,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "gitbatch",
+      "lines": 133,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "github-ready",
+      "lines": 316,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "gitingest",
+      "lines": 90,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "gitready",
+      "lines": 307,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "google-ai-usage-monitor",
+      "lines": 195,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "gto",
+      "lines": 279,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "handoff",
+      "lines": 98,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "harden",
+      "lines": 132,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "health-monitor",
+      "lines": 188,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "hook-audit",
+      "lines": 124,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "hook-inventory",
+      "lines": 117,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "hook-obs",
+      "lines": 129,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "hooks-edit",
+      "lines": 70,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "init",
+      "lines": 150,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "intelligence-stream-analyze",
+      "lines": 21,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "intelligence-stream-ingest",
+      "lines": 21,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "learn",
+      "lines": 307,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "library-first",
+      "lines": 70,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "lmc",
+      "lines": 213,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "loop-code",
+      "lines": 187,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "main",
+      "lines": 143,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "main-hooks",
+      "lines": 134,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "memory-integration",
+      "lines": 296,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "mermaid-diagrams",
+      "lines": 246,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "meta-review",
+      "lines": 100,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "mlc",
+      "lines": 175,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "multi-file-refactor",
+      "lines": 278,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "multi-instance-coherence",
+      "lines": 93,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "my-test-skill",
+      "lines": 93,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "nano-banana-2-hacks",
+      "lines": 89,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "nlm-skill",
+      "lines": 187,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "notebooklm",
+      "lines": 45,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "notebooklm-expert",
+      "lines": 192,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ocpa",
+      "lines": 61,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "optimize-claude-md",
+      "lines": 211,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "orchestrator",
+      "lines": 137,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "output-style-extractor",
+      "lines": 188,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "p",
+      "lines": 300,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "pace",
+      "lines": 106,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "pds",
+      "lines": 56,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "perf",
+      "lines": 133,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "performance-profiler",
+      "lines": 49,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "perplexity-web-mcp",
+      "lines": 185,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "planning",
+      "lines": 235,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "prd",
+      "lines": 161,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "pre-mortem",
+      "lines": 331,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "profile",
+      "lines": 174,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "prompt_refiner",
+      "lines": 89,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "prrp",
+      "lines": 111,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "push",
+      "lines": 95,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "python-backend-reviewer",
+      "lines": 161,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "q",
+      "lines": 185,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "quadlet",
+      "lines": 162,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "query_alias",
+      "lines": 75,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "quota",
+      "lines": 111,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "r",
+      "lines": 146,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ralph",
+      "lines": 85,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "recap",
+      "lines": 84,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "refactor",
+      "lines": 182,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "reflect",
+      "lines": 163,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "reports",
+      "lines": 125,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "research",
+      "lines": 236,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "response-atomicity",
+      "lines": 100,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "restore",
+      "lines": 100,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "review_bundle",
+      "lines": 247,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "rich-skill",
+      "lines": 282,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "s",
+      "lines": 254,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sar-help",
+      "lines": 75,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sar-inst",
+      "lines": 67,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "scratchpad",
+      "lines": 137,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "search",
+      "lines": 215,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sequential-thinking",
+      "lines": 158,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "serena",
+      "lines": 269,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "session",
+      "lines": 80,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sharing-skills",
+      "lines": 155,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ship",
+      "lines": 106,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "similarity",
+      "lines": 127,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "skeptic",
+      "lines": 97,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "skill-ship",
+      "lines": 193,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "slc",
+      "lines": 90,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "solo-dev-authority",
+      "lines": 262,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "solo_dev_mappings",
+      "lines": 33,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sp",
+      "lines": 75,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "spec-compliance",
+      "lines": 82,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "specify",
+      "lines": 144,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sqa",
+      "lines": 148,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "sqa-orchestrator",
+      "lines": 149,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "staging-protocol",
+      "lines": 75,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "standards",
+      "lines": 65,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "step-6-5",
+      "lines": 108,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "subagent-driven-development",
+      "lines": 227,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "subagent-first",
+      "lines": 156,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "synergy",
+      "lines": 126,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "system-internals-verification",
+      "lines": 63,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "t",
+      "lines": 254,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "task",
+      "lines": 138,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "task-unresolved",
+      "lines": 47,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tdd",
+      "lines": 225,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "team",
+      "lines": 190,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "telemetry",
+      "lines": 62,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "think",
+      "lines": 229,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "timeline",
+      "lines": 104,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tldr-code",
+      "lines": 107,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tldr-deep",
+      "lines": 110,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tldr-overview",
+      "lines": 87,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tldr-router",
+      "lines": 100,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tldr-stats",
+      "lines": 88,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "tot",
+      "lines": 110,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "trace",
+      "lines": 237,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "track",
+      "lines": 88,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "truth",
+      "lines": 170,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "truth-av",
+      "lines": 192,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "uci",
+      "lines": 209,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "update_state",
+      "lines": 107,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "usm",
+      "lines": 222,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "validate-safety-patterns",
+      "lines": 69,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "validate_spec",
+      "lines": 95,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "verify",
+      "lines": 204,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "why",
+      "lines": 269,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "write-file",
+      "lines": 75,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    },
+    {
+      "skill": "ytftss",
+      "lines": 111,
+      "issues": [],
+      "warnings": [],
+      "healthy": true
+    }
+  ]
+}
