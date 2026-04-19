@@ -130,6 +130,8 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 
 **Hook Audit:** Run `/hook-audit` monthly to monitor LLM compliance with hook injections and blocking effectiveness. The `/main` health checks cover hook performance (timeout rates, latency, log bloat); hook-audit covers behavioral compliance — whether injected instructions are followed and whether enforcement is working as intended.
 
+**Session Insights:** Run `/insights` monthly to analyze Claude Code session patterns and identify usage trends. Provides visibility into how the system is being used and where workflow improvements may exist.
+
 ---
 
 ## Thresholds
