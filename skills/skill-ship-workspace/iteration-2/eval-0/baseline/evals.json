@@ -1,0 +1,23 @@
+{
+  "skill_name": "code-review-workflow",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review my code at P:/.claude/skills/code-review/lib/review_session.py for any issues",
+      "expected_output": "Review report with health score and severity-tagged findings",
+      "files": ["P:/.claude/skills/code-review/lib/review_session.py"]
+    },
+    {
+      "id": 2,
+      "prompt": "run code review on P:/.claude/skills/code-review/",
+      "expected_output": "Comprehensive review of all Python files in the directory with findings from multiple specialists",
+      "files": ["P:/.claude/skills/code-review/"]
+    },
+    {
+      "id": 3,
+      "prompt": "check my code for security issues in P:/__csf/core/",
+      "expected_output": "Security-focused review report with vulnerability findings",
+      "files": ["P:/__csf/core/"]
+    }
+  ]
+}

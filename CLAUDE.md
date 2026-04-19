@@ -1,16 +1,36 @@
 # cc-skills-utils
 
-Utility skills for Claude Code — discovery, git operations, and general tooling.
+Utility skills for Claude Code — discovery, git operations, hooks, session management, and general tooling.
 
-## Skills (5)
+## Skills (26)
 
 | Skill | Purpose |
 |-------|---------|
+| ask | Universal CLI router |
+| cleanup | Cleanup workflow |
+| clear_restore | Clear restore state |
 | discover | Codebase discovery before implementation |
+| git | Multi-repo sync and worktree management |
+| gitbatch | Batch git operations |
+| git-conventional-commits | Conventional commit enforcement |
 | gitingest | Prepare repo for NotebookLM ingestion |
+| github-ready | GitHub publication preparation |
 | gitready | Universal package creator and portfolio polisher |
+| handoff | Session handoff |
+| hook-audit | Hook auditing |
+| hook-inventory | Hook inventory scanning |
+| hook-obs | Hook observability |
+| hooks-edit | Hook editing |
+| init | Project initialization |
 | main | Skill health monitoring and management |
+| main-hooks | Core hook management |
+| push | Git push wrapper |
+| restore | Session restore |
 | s | Quick shortcut skill |
+| skill-ship-workspace | Skill distribution workspace |
+| task | Task management |
+| task-unresolved | Unresolved task checking |
+| track | Item tracking |
 
 ## Artifacts Convention
 
