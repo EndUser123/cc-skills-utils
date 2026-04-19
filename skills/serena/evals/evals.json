@@ -1,0 +1,23 @@
+{
+  "skill_name": "serena-api",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Find all classes that inherit from BaseModel in the src/models directory",
+      "expected_output": "List of Symbol objects for classes inheriting from BaseModel with file paths and line numbers",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "What functions reference the User model in src/auth.py?",
+      "expected_output": "List of reference symbols showing where User is used in src/auth.py",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Store in memory that the process_data function has a performance bottleneck in the ETL loop",
+      "expected_output": "Memory entry written confirming the insight was stored",
+      "files": []
+    }
+  ]
+}

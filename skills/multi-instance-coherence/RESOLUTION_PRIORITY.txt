@@ -1,0 +1,8 @@
+Multi-Instance Resolution Priority
+
+When conflicts occur between instances:
+
+1. Most recent committed state (git truth)
+2. Explicit sapling backups (if git is inconsistent)
+3. File timestamps (fallback indicator)
+4. User clarification (if ambiguous)
