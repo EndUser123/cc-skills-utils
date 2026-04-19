@@ -124,6 +124,12 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 
 **Periodic Problem Tracking:** For ongoing awareness of accumulating issues, consider running `/top-problems --diff` periodically. The `/main` health check covers system infrastructure; `/top-problems` covers evidence-accumulated risks from sessions, premortems, and critiques.
 
+**Permission Prompt Hygiene:** Run `/fewer-permission-prompts` if it has been more than 5 days since the last run. This scans recent transcripts and refreshes the read-only allowlist in `P:/.claude/settings.json` to reduce unnecessary prompts. The last known run was 2026-04-19 — run the command to check current transcript coverage if uncertain.
+
+**CLAUDE.md Health:** Run `/claude-md-management:claude-md-improver` if it has not been used in more than 5 days. Audits all CLAUDE.md files in the repo, scores them against a quality rubric, and proposes targeted improvements. Run after any significant project structure changes or before major development pushes.
+
+**Hook Audit:** Run `/hook-audit` monthly to monitor LLM compliance with hook injections and blocking effectiveness. The `/main` health checks cover hook performance (timeout rates, latency, log bloat); hook-audit covers behavioral compliance — whether injected instructions are followed and whether enforcement is working as intended.
+
 ---
 
 ## Thresholds
