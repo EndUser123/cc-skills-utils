@@ -1,14 +1,16 @@
 ---
 name: main
-description: Main Cognitive Steering Framework - system health checks and workspace validation
+description: Main Cognitive Steering Framework - system health checks and workspace validation (with optional enforcement hooks)
 version: 1.0.0
 status: stable
 category: governance
 triggers:
   - /main
+  - /main-hooks
 aliases:
   - /main
   - /health
+  - /main-hooks
 enforcement: advisory
 version: 1.0.0
 depends_on_skills: []
@@ -21,9 +23,26 @@ suggest:
   - /standards
   - /dream
   - /top-problems
+
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "python \"$CLAUDE_PROJECT_DIR/.claude/skills/main/hooks/PreToolUse_main_gate.py\""
+          timeout: 10
 ---
 
 # Main Cognitive Steering Framework
+
+## Two Modes
+
+| Mode | Trigger | Enforcement |
+|------|---------|-------------|
+| **Advisory** | `/main` | No hook enforcement |
+| **Enforced** | `/main-hooks` | PreToolUse gate validates Bash calls to `main_health.py` |
+
+Both modes run the same health checks. The `--hooks` flag enables hook enforcement for any invocation.
 
 ## EXECUTION DIRECTIVE
 
