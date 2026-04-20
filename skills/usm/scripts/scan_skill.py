@@ -40,17 +40,45 @@ MAX_FILE_SIZE = 10_000_000  # 10 MB
 MAX_FILE_COUNT = 1000
 MAX_DIR_DEPTH = 10
 
-_SCRIPT_EXTENSIONS = frozenset({
-    ".py", ".sh", ".bash", ".js", ".mjs", ".cjs", ".ts", ".tsx",
-    ".rb", ".pl", ".lua", ".ps1", ".bat", ".cmd",
-})
-_CONFIG_EXTENSIONS = frozenset({
-    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".env",
-})
-_BUILD_BASENAMES = frozenset({
-    "Makefile", "Dockerfile", "Jenkinsfile", "Containerfile",
-})
+_SCRIPT_EXTENSIONS = frozenset(
+    {
+        ".py",
+        ".sh",
+        ".bash",
+        ".js",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".tsx",
+        ".rb",
+        ".pl",
+        ".lua",
+        ".ps1",
+        ".bat",
+        ".cmd",
+    }
+)
+_CONFIG_EXTENSIONS = frozenset(
+    {
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".cfg",
+        ".env",
+    }
+)
+_BUILD_BASENAMES = frozenset(
+    {
+        "Makefile",
+        "Dockerfile",
+        "Jenkinsfile",
+        "Containerfile",
+    }
+)
 _SKIP_DIRS = frozenset({".git", ".svn", ".hg", "__pycache__", "node_modules"})
+
 
 def _join_continuation_lines(lines):
     """Join lines ending with backslash into single logical lines.
@@ -81,14 +109,14 @@ def _join_continuation_lines(lines):
 
 
 _ANSI_ESCAPE_RE = re.compile(
-    r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][A-B0-2]'
+    r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*(?:\x07|\x1b\\)|\x1b[()][A-B0-2]"
 )
 
 # --- Module-level compiled regex patterns ---
 
 _EXFILTRATION_URL_PATTERNS = [
     (
-        re.compile(r'!\[.*?\]\(https?://[^)]*[\$\{]', re.IGNORECASE),
+        re.compile(r"!\[.*?\]\(https?://[^)]*[\$\{]", re.IGNORECASE),
         "Markdown image with variable interpolation — may exfiltrate data via URL",
     ),
     (
@@ -96,15 +124,15 @@ _EXFILTRATION_URL_PATTERNS = [
         "HTML img tag with external URL — may load tracking pixel or exfiltrate data",
     ),
     (
-        re.compile(r'!\[.*?\]\(https?://[^)]*\?[^)]*=', re.IGNORECASE),
+        re.compile(r"!\[.*?\]\(https?://[^)]*\?[^)]*=", re.IGNORECASE),
         "Markdown image with query parameters — may exfiltrate data via URL parameters",
     ),
     (
-        re.compile(r'!\[.*?\]\(data:', re.IGNORECASE),
+        re.compile(r"!\[.*?\]\(data:", re.IGNORECASE),
         "Markdown image with data URI — may contain embedded malicious payload",
     ),
     (
-        re.compile(r'!\[.*?\]\(//[^)]+', re.IGNORECASE),
+        re.compile(r"!\[.*?\]\(//[^)]+", re.IGNORECASE),
         "Markdown image with protocol-relative URL — may exfiltrate data",
     ),
     (
@@ -118,183 +146,201 @@ _EXFILTRATION_URL_PATTERNS = [
 ]
 
 _SHELL_PIPE_PATTERN = re.compile(
-    r'(curl|wget)\s+[^|]*\|\s*(bash|sh|zsh|python[23]?|perl|ruby|node)',
+    r"(curl|wget)\s+[^|]*\|\s*(bash|sh|zsh|python[23]?|perl|ruby|node)",
     re.IGNORECASE,
 )
 
 _CREDENTIAL_PATH_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'~/\.ssh/',
-        r'~/\.aws/',
-        r'~/\.gnupg/',
-        r'~/\.env\b',
-        r'\.credentials',
-        r'id_rsa',
-        r'id_ed25519',
-        r'id_ecdsa',
-        r'\.pem\b',
-        r'\.key\b',
-        r'/etc/passwd',
-        r'/etc/shadow',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"~/\.ssh/",
+        r"~/\.aws/",
+        r"~/\.gnupg/",
+        r"~/\.env\b",
+        r"\.credentials",
+        r"id_rsa",
+        r"id_ed25519",
+        r"id_ecdsa",
+        r"\.pem\b",
+        r"\.key\b",
+        r"/etc/passwd",
+        r"/etc/shadow",
     ]
 ]
 
 _CREDENTIAL_ENV_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'\$\{?GITHUB_TOKEN\}?',
-        r'\$\{?OPENAI_API_KEY\}?',
-        r'\$\{?ANTHROPIC_API_KEY\}?',
-        r'\$\{?AWS_SECRET_ACCESS_KEY\}?',
-        r'\$\{?AWS_ACCESS_KEY_ID\}?',
-        r'\$\{?DATABASE_URL\}?',
-        r'\$\{?DB_PASSWORD\}?',
-        r'\$\{?SECRET_KEY\}?',
-        r'\$\{?PRIVATE_KEY\}?',
-        r'\$\{?API_SECRET\}?',
-        r'\$\{?GOOGLE_API_KEY\}?',
-        r'\$\{?STRIPE_SECRET\}?',
-        r'\$\{?AZURE_CLIENT_SECRET\}?',
-        r'\$\{?AZURE_TENANT_ID\}?',
-        r'\$\{?SLACK_TOKEN\}?',
-        r'\$\{?SLACK_WEBHOOK_URL\}?',
-        r'\$\{?SLACK_BOT_TOKEN\}?',
-        r'\$\{?SENDGRID_API_KEY\}?',
-        r'\$\{?NPM_TOKEN\}?',
-        r'\$\{?NODE_AUTH_TOKEN\}?',
-        r'\$\{?GITLAB_TOKEN\}?',
-        r'\$\{?CI_JOB_TOKEN\}?',
-        r'\$\{?HEROKU_API_KEY\}?',
-        r'\$\{?DIGITALOCEAN_TOKEN\}?',
-        r'\$\{?TWILIO_AUTH_TOKEN\}?',
-        r'\$\{?DATADOG_API_KEY\}?',
-        r'\$\{?SENTRY_AUTH_TOKEN\}?',
-        r'\$\{?CIRCLECI_TOKEN\}?',
-        r'\$\{?DOCKER_PASSWORD\}?',
-        r'\$\{?CLOUDFLARE_API_TOKEN\}?',
-        r'\$\{?TERRAFORM_TOKEN\}?',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\$\{?GITHUB_TOKEN\}?",
+        r"\$\{?OPENAI_API_KEY\}?",
+        r"\$\{?ANTHROPIC_API_KEY\}?",
+        r"\$\{?AWS_SECRET_ACCESS_KEY\}?",
+        r"\$\{?AWS_ACCESS_KEY_ID\}?",
+        r"\$\{?DATABASE_URL\}?",
+        r"\$\{?DB_PASSWORD\}?",
+        r"\$\{?SECRET_KEY\}?",
+        r"\$\{?PRIVATE_KEY\}?",
+        r"\$\{?API_SECRET\}?",
+        r"\$\{?GOOGLE_API_KEY\}?",
+        r"\$\{?STRIPE_SECRET\}?",
+        r"\$\{?AZURE_CLIENT_SECRET\}?",
+        r"\$\{?AZURE_TENANT_ID\}?",
+        r"\$\{?SLACK_TOKEN\}?",
+        r"\$\{?SLACK_WEBHOOK_URL\}?",
+        r"\$\{?SLACK_BOT_TOKEN\}?",
+        r"\$\{?SENDGRID_API_KEY\}?",
+        r"\$\{?NPM_TOKEN\}?",
+        r"\$\{?NODE_AUTH_TOKEN\}?",
+        r"\$\{?GITLAB_TOKEN\}?",
+        r"\$\{?CI_JOB_TOKEN\}?",
+        r"\$\{?HEROKU_API_KEY\}?",
+        r"\$\{?DIGITALOCEAN_TOKEN\}?",
+        r"\$\{?TWILIO_AUTH_TOKEN\}?",
+        r"\$\{?DATADOG_API_KEY\}?",
+        r"\$\{?SENTRY_AUTH_TOKEN\}?",
+        r"\$\{?CIRCLECI_TOKEN\}?",
+        r"\$\{?DOCKER_PASSWORD\}?",
+        r"\$\{?CLOUDFLARE_API_TOKEN\}?",
+        r"\$\{?TERRAFORM_TOKEN\}?",
     ]
 ]
 
 _HARDCODED_SECRET_PATTERNS = [
-    (re.compile(r'AKIA[A-Z0-9]{16}'), "AWS access key ID"),
-    (re.compile(r'ghp_[A-Za-z0-9]{36,}'), "GitHub personal access token"),
-    (re.compile(r'gho_[A-Za-z0-9]{36,}'), "GitHub OAuth token"),
-    (re.compile(r'ghu_[A-Za-z0-9]{36,}'), "GitHub user-to-server token"),
-    (re.compile(r'ghs_[A-Za-z0-9]{36,}'), "GitHub server-to-server token"),
-    (re.compile(r'github_pat_[A-Za-z0-9_]{22,}'), "GitHub fine-grained PAT"),
-    (re.compile(r'sk-[a-zA-Z0-9]{20,}'), "OpenAI/generic API key"),
-    (re.compile(r'xox[baprs]-[0-9]{10,13}-[0-9A-Za-z-]+'), "Slack token"),
-    (re.compile(r'-----BEGIN\s+(RSA\s+|OPENSSH\s+|EC\s+)?PRIVATE\s+KEY-----'), "Private key block"),
-    (re.compile(r'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+'), "JWT token"),
+    (re.compile(r"AKIA[A-Z0-9]{16}"), "AWS access key ID"),
+    (re.compile(r"ghp_[A-Za-z0-9]{36,}"), "GitHub personal access token"),
+    (re.compile(r"gho_[A-Za-z0-9]{36,}"), "GitHub OAuth token"),
+    (re.compile(r"ghu_[A-Za-z0-9]{36,}"), "GitHub user-to-server token"),
+    (re.compile(r"ghs_[A-Za-z0-9]{36,}"), "GitHub server-to-server token"),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{22,}"), "GitHub fine-grained PAT"),
+    (re.compile(r"sk-[a-zA-Z0-9]{20,}"), "OpenAI/generic API key"),
+    (re.compile(r"xox[baprs]-[0-9]{10,13}-[0-9A-Za-z-]+"), "Slack token"),
+    (re.compile(r"-----BEGIN\s+(RSA\s+|OPENSSH\s+|EC\s+)?PRIVATE\s+KEY-----"), "Private key block"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+"), "JWT token"),
 ]
 
 _EXTERNAL_URL_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'\bcurl\s+.*https?://',
-        r'\bwget\s+.*https?://',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\bcurl\s+.*https?://",
+        r"\bwget\s+.*https?://",
         r'\bfetch\s*\(\s*["\']https?://',
-        r'\brequests?\.(get|post|put|delete)\s*\(',
-        r'\bhttp\.(get|post|put|delete)\s*\(',
-        r'\burllib\.request',
+        r"\brequests?\.(get|post|put|delete)\s*\(",
+        r"\bhttp\.(get|post|put|delete)\s*\(",
+        r"\burllib\.request",
     ]
 ]
 
 _COMMAND_EXECUTION_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'\beval\s*\(',
-        r'\bexec\s*\(',
-        r'\bos\.system\s*\(',
-        r'\bsubprocess\.(run|call|Popen|check_output)\s*\(',
-        r'\bsh\s+-c\s+',
-        r'\bbash\s+-c\s+',
-        r'\bRuntime\.exec\s*\(',
-        r'\bos\.popen\s*\(',
-        r'\bcommands\.getoutput\s*\(',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"\beval\s*\(",
+        r"\bexec\s*\(",
+        r"\bos\.system\s*\(",
+        r"\bsubprocess\.(run|call|Popen|check_output)\s*\(",
+        r"\bsh\s+-c\s+",
+        r"\bbash\s+-c\s+",
+        r"\bRuntime\.exec\s*\(",
+        r"\bos\.popen\s*\(",
+        r"\bcommands\.getoutput\s*\(",
     ]
 ]
 
 _INSTRUCTION_OVERRIDE_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'ignore\s+(all\s+)?previous\s+instructions?',
-        r'disregard\s+(all\s+)?(previous\s+|prior\s+)?instructions?',
-        r'disregard\s+(all\s+)?(previous\s+|prior\s+)?directives?',
-        r'forget\s+(all\s+)?(previous\s+|everything\s+)',
-        r'new\s+instructions?\s+(follow|are|:)',
-        r'override\s+(all\s+)?previous\s+instructions?',
-        r'cancel\s+(all\s+)?prior\s+instructions?',
-        r'your\s+(new|updated)\s+instructions?\s+(are|:)',
-        r'do\s+not\s+follow\s+(your\s+)?(original|previous)',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"ignore\s+(all\s+)?previous\s+instructions?",
+        r"disregard\s+(all\s+)?(previous\s+|prior\s+)?instructions?",
+        r"disregard\s+(all\s+)?(previous\s+|prior\s+)?directives?",
+        r"forget\s+(all\s+)?(previous\s+|everything\s+)",
+        r"new\s+instructions?\s+(follow|are|:)",
+        r"override\s+(all\s+)?previous\s+instructions?",
+        r"cancel\s+(all\s+)?prior\s+instructions?",
+        r"your\s+(new|updated)\s+instructions?\s+(are|:)",
+        r"do\s+not\s+follow\s+(your\s+)?(original|previous)",
     ]
 ]
 
 _ROLE_HIJACKING_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'you\s+are\s+now\s+(?!going|ready|able|seeing|in\s+the|connected|running|using|looking|inside|logged)',
-        r'act\s+as\s+(if\s+)?(you\s+are|an?\s+)',
-        r'pretend\s+(to\s+be|you\s+are)',
-        r'assume\s+the\s+role\s+of',
-        r'enter\s+developer\s+mode',
-        r'\bDAN\s+mode\b',
-        r'unrestricted\s+mode',
-        r'you\s+have\s+no\s+restrictions',
-        r'enable\s+jailbreak',
-        r'you\s+are\s+no\s+longer\s+bound',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"you\s+are\s+now\s+(?!going|ready|able|seeing|in\s+the|connected|running|using|looking|inside|logged)",
+        r"act\s+as\s+(if\s+)?(you\s+are|an?\s+)",
+        r"pretend\s+(to\s+be|you\s+are)",
+        r"assume\s+the\s+role\s+of",
+        r"enter\s+developer\s+mode",
+        r"\bDAN\s+mode\b",
+        r"unrestricted\s+mode",
+        r"you\s+have\s+no\s+restrictions",
+        r"enable\s+jailbreak",
+        r"you\s+are\s+no\s+longer\s+bound",
     ]
 ]
 
 _SAFETY_BYPASS_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'bypass\s+(safety|security|filter|restriction)',
-        r'disable\s+(content\s+)?filter',
-        r'remove\s+(all\s+)?restrictions?',
-        r'ignore\s+safety\s+protocols?',
-        r'without\s+(any\s+)?restrictions?',
-        r'system\s+override',
-        r'no\s+ethical\s+guidelines',
-        r'disregard\s+(any\s+)?filters?',
-        r'turn\s+off\s+(safety|content\s+filter)',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"bypass\s+(safety|security|filter|restriction)",
+        r"disable\s+(content\s+)?filter",
+        r"remove\s+(all\s+)?restrictions?",
+        r"ignore\s+safety\s+protocols?",
+        r"without\s+(any\s+)?restrictions?",
+        r"system\s+override",
+        r"no\s+ethical\s+guidelines",
+        r"disregard\s+(any\s+)?filters?",
+        r"turn\s+off\s+(safety|content\s+filter)",
     ]
 ]
 
 _ENCODED_CONTENT_PATTERNS = [
-    (re.compile(r'[A-Za-z0-9+/]{40,}={0,2}'), "Long base64-encoded string detected"),
-    (re.compile(r'(?:\\x[0-9a-fA-F]{2}){4,}'), "Hex escape sequences detected"),
-    (re.compile(r'(?:\\u[0-9a-fA-F]{4}){3,}'), "Unicode escape sequences detected"),
-    (re.compile(r'(?:&#x?[0-9a-fA-F]+;){3,}'), "HTML entity sequences detected"),
-    (re.compile(r'(?:%[0-9a-fA-F]{2}){6,}'), "URL-encoded sequences detected"),
+    (re.compile(r"[A-Za-z0-9+/]{40,}={0,2}"), "Long base64-encoded string detected"),
+    (re.compile(r"(?:\\x[0-9a-fA-F]{2}){4,}"), "Hex escape sequences detected"),
+    (re.compile(r"(?:\\u[0-9a-fA-F]{4}){3,}"), "Unicode escape sequences detected"),
+    (re.compile(r"(?:&#x?[0-9a-fA-F]+;){3,}"), "HTML entity sequences detected"),
+    (re.compile(r"(?:%[0-9a-fA-F]{2}){6,}"), "URL-encoded sequences detected"),
 ]
 
 _PROMPT_EXTRACTION_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'reveal\s+(your\s+)?system\s+prompt',
-        r'show\s+(me\s+)?your\s+instructions',
-        r'print\s+(your\s+)?(initial\s+)?prompt',
-        r'output\s+your\s+(configuration|instructions)',
-        r'what\s+(were\s+you|are\s+your)\s+(told|instructions)',
-        r'repeat\s+the\s+(above|previous)\s+text',
-        r'display\s+(your\s+)?(system\s+)?(prompt|instructions)',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"reveal\s+(your\s+)?system\s+prompt",
+        r"show\s+(me\s+)?your\s+instructions",
+        r"print\s+(your\s+)?(initial\s+)?prompt",
+        r"output\s+your\s+(configuration|instructions)",
+        r"what\s+(were\s+you|are\s+your)\s+(told|instructions)",
+        r"repeat\s+the\s+(above|previous)\s+text",
+        r"display\s+(your\s+)?(system\s+)?(prompt|instructions)",
     ]
 ]
 
 _DELIMITER_INJECTION_PATTERNS = [
-    re.compile(p) for p in [
-        r'<\|system\|>',
-        r'<\|user\|>',
-        r'<\|assistant\|>',
-        r'<\|im_start\|>',
-        r'<\|im_end\|>',
-        r'\[INST\]',
-        r'\[/INST\]',
-        r'<<SYS>>',
-        r'<</SYS>>',
+    re.compile(p)
+    for p in [
+        r"<\|system\|>",
+        r"<\|user\|>",
+        r"<\|assistant\|>",
+        r"<\|im_start\|>",
+        r"<\|im_end\|>",
+        r"\[INST\]",
+        r"\[/INST\]",
+        r"<<SYS>>",
+        r"<</SYS>>",
     ]
 ]
 
 # Homoglyph transliteration map (Cyrillic → ASCII)
 _HOMOGLYPH_MAP = {
-    '\u0430': 'a', '\u0435': 'e', '\u043e': 'o', '\u0440': 'p',
-    '\u0441': 'c', '\u0443': 'y', '\u0445': 'x', '\u0456': 'i',
-    '\u0458': 'j', '\u04bb': 'h', '\u0455': 's', '\u0442': 't',
+    "\u0430": "a",
+    "\u0435": "e",
+    "\u043e": "o",
+    "\u0440": "p",
+    "\u0441": "c",
+    "\u0443": "y",
+    "\u0445": "x",
+    "\u0456": "i",
+    "\u0458": "j",
+    "\u04bb": "h",
+    "\u0455": "s",
+    "\u0442": "t",
 }
 _HOMOGLYPH_TRANS = str.maketrans(_HOMOGLYPH_MAP)
 
@@ -305,13 +351,14 @@ def _transliterate_homoglyphs(text):
 
 
 _CROSS_SKILL_ESCALATION_PATTERNS = [
-    re.compile(p, re.IGNORECASE) for p in [
-        r'install\s+(this\s+|the\s+)?skill\s+from\s+https?://',
-        r'download\s+(this\s+|the\s+)?skill\s+from',
-        r'fetch\s+(this\s+|the\s+)?(skill|extension)\s+from',
-        r'add\s+(this\s+)?to\s+~/\.(claude|gemini|cursor|codex|roo)',
-        r'cp\s+.*\s+~/\.(claude|gemini|cursor|codex|roo)/skills',
-        r'git\s+clone\s+.*\s+~/\.(claude|gemini|cursor|codex)',
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"install\s+(this\s+|the\s+)?skill\s+from\s+https?://",
+        r"download\s+(this\s+|the\s+)?skill\s+from",
+        r"fetch\s+(this\s+|the\s+)?(skill|extension)\s+from",
+        r"add\s+(this\s+)?to\s+~/\.(claude|gemini|cursor|codex|roo)",
+        r"cp\s+.*\s+~/\.(claude|gemini|cursor|codex|roo)/skills",
+        r"git\s+clone\s+.*\s+~/\.(claude|gemini|cursor|codex)",
     ]
 ]
 
@@ -412,7 +459,7 @@ class SkillScanner:
         # Open with O_NOFOLLOW to eliminate TOCTOU between is_symlink and read
         # O_NOFOLLOW is POSIX-only; on Windows, rely on the is_symlink() pre-check above
         open_flags = os.O_RDONLY
-        if hasattr(os, 'O_NOFOLLOW'):
+        if hasattr(os, "O_NOFOLLOW"):
             open_flags |= os.O_NOFOLLOW
         try:
             fd = os.open(str(file_path), open_flags)
@@ -577,9 +624,7 @@ class SkillScanner:
 
             if found_codepoints:
                 # Deduplicate and show up to 5 unique codepoints
-                codepoint_strs = sorted(
-                    [f"U+{ord(c):04X}" for c in found_codepoints]
-                )
+                codepoint_strs = sorted([f"U+{ord(c):04X}" for c in found_codepoints])
                 shown = codepoint_strs[:5]
                 suffix = f" (and {len(codepoint_strs) - 5} more)" if len(codepoint_strs) > 5 else ""
                 cp_display = ", ".join(shown) + suffix
@@ -802,11 +847,11 @@ class SkillScanner:
                             file=file,
                             line=line_num,
                             description=f"HTML comment detected — may contain hidden instructions: {d}",
-                            matched_text=rest[:end_idx + 3].strip()[:100],
+                            matched_text=rest[: end_idx + 3].strip()[:100],
                             recommendation="Review HTML comments carefully. They are invisible in rendered markdown and can hide malicious instructions.",
                         )
                         # Look for another comment in the remainder
-                        rest = rest[end_idx + 3:]
+                        rest = rest[end_idx + 3 :]
                         next_start = rest.find("<!--")
                         if next_start == -1:
                             break
@@ -837,7 +882,7 @@ class SkillScanner:
                     in_comment = False
                     comment_content = ""
                     # Check remainder of line for more comments
-                    remainder = line[end_idx + 3:]
+                    remainder = line[end_idx + 3 :]
                     next_start = remainder.find("<!--")
                     if next_start != -1:
                         # Re-process from the new comment opening
@@ -853,10 +898,10 @@ class SkillScanner:
                                     file=file,
                                     line=line_num,
                                     description=f"HTML comment detected — may contain hidden instructions: {d}",
-                                    matched_text=rest[:close + 3].strip()[:100],
+                                    matched_text=rest[: close + 3].strip()[:100],
                                     recommendation="Review HTML comments carefully. They are invisible in rendered markdown and can hide malicious instructions.",
                                 )
-                                rest = rest[close + 3:]
+                                rest = rest[close + 3 :]
                                 ns = rest.find("<!--")
                                 if ns == -1:
                                     break
@@ -950,18 +995,23 @@ class SkillScanner:
                     )
                     break  # One finding per line
 
-    def _add_finding(self, severity, category, file, line, description, matched_text, recommendation):
+    def _add_finding(
+        self, severity, category, file, line, description, matched_text, recommendation
+    ):
         """Add a finding to the findings list."""
         # Deduplicate by file+line+category+description
         for existing in self.findings:
-            if (existing.file == file and existing.line == line
-                    and existing.category == category
-                    and existing.description == description):
+            if (
+                existing.file == file
+                and existing.line == line
+                and existing.category == category
+                and existing.description == description
+            ):
                 return
         # Strip ANSI escape sequences and control characters
-        sanitized_text = _ANSI_ESCAPE_RE.sub('', matched_text)
-        sanitized_text = ''.join(
-            ch for ch in sanitized_text if ch == '\n' or ch == '\t' or not (0 <= ord(ch) < 32)
+        sanitized_text = _ANSI_ESCAPE_RE.sub("", matched_text)
+        sanitized_text = "".join(
+            ch for ch in sanitized_text if ch == "\n" or ch == "\t" or not (0 <= ord(ch) < 32)
         )
         finding = Finding(
             severity=severity,
@@ -1006,9 +1056,7 @@ def exit_code_from_report(report):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Scan AI skill packages for security issues."
-    )
+    parser = argparse.ArgumentParser(description="Scan AI skill packages for security issues.")
     parser.add_argument(
         "path",
         nargs="?",

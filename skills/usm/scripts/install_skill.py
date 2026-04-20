@@ -17,6 +17,7 @@ Features:
 
 import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -26,10 +27,8 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
-import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 VERSION = "1.3.0"
 
@@ -38,23 +37,24 @@ VERSION = "1.3.0"
 # URL Parsing
 # =============================================================================
 
-def parse_github_url(url: str) -> Optional[dict]:
+
+def parse_github_url(url: str) -> dict | None:
     """
     Parse a GitHub tree URL into components.
-    
+
     Input:  https://github.com/{owner}/{repo}/tree/{branch}/{path}
             https://github.com/{owner}/{repo}/tree/{branch}  (root level)
     Output: {"owner": ..., "repo": ..., "branch": ..., "path": ...}
-    
+
     Returns None if URL is not a valid GitHub tree URL.
     """
     # Pattern: github.com/{owner}/{repo}/tree/{branch}/{path...} (path optional)
-    pattern = r'https?://github\.com/([^/]+)/([^/]+)/tree/([^/]+)(?:/(.+?))?/?$'
+    pattern = r"https?://github\.com/([^/]+)/([^/]+)/tree/([^/]+)(?:/(.+?))?/?$"
     match = re.match(pattern, url)
-    
+
     if not match:
         return None
-    
+
     return {
         "owner": match.group(1),
         "repo": match.group(2),
@@ -67,9 +67,10 @@ def to_raw_url(owner: str, repo: str, branch: str, path: str, filename: str) -> 
     """Convert GitHub components to raw.githubusercontent.com URL."""
     # URL-encode the filename to handle spaces and special characters
     from urllib.parse import quote
-    encoded_filename = quote(filename, safe='')
+
+    encoded_filename = quote(filename, safe="")
     if path:
-        encoded_path = '/'.join(quote(p, safe='') for p in path.split('/'))
+        encoded_path = "/".join(quote(p, safe="") for p in path.split("/"))
         return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{encoded_path}/{encoded_filename}"
     else:
         return f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{encoded_filename}"
@@ -87,42 +88,43 @@ def to_api_url(owner: str, repo: str, branch: str, path: str) -> str:
 # GitHub API & Downloads
 # =============================================================================
 
-def fetch_json(url: str, token: Optional[str] = None, verbose: bool = False) -> dict:
+
+def fetch_json(url: str, token: str | None = None, verbose: bool = False) -> dict:
     """Fetch JSON from URL with optional auth token."""
     if verbose:
         print(f"  Fetching: {url}")
-    
+
     headers = {"Accept": "application/vnd.github.v3+json"}
     if token:
         headers["Authorization"] = f"token {token}"
-    
+
     request = urllib.request.Request(url, headers=headers)
-    
+
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return json.loads(response.read().decode('utf-8'))
+            return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 404:
             raise RuntimeError(f"Not found: {url}. Check URL or use --token for private repos.")
         elif e.code == 403:
-            raise RuntimeError(f"Rate limited or forbidden. Use --token for higher limits.")
+            raise RuntimeError("Rate limited or forbidden. Use --token for higher limits.")
         else:
             raise RuntimeError(f"HTTP {e.code}: {e.reason}")
     except urllib.error.URLError as e:
         raise RuntimeError(f"Network error: {e.reason}")
 
 
-def fetch_file(url: str, dest_path: Path, token: Optional[str] = None, verbose: bool = False) -> None:
+def fetch_file(url: str, dest_path: Path, token: str | None = None, verbose: bool = False) -> None:
     """Download a file from URL to destination path."""
     if verbose:
         print(f"  Downloading: {url}")
-    
+
     headers = {}
     if token:
         headers["Authorization"] = f"token {token}"
-    
+
     request = urllib.request.Request(url, headers=headers)
-    
+
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             content = response.read()
@@ -134,15 +136,21 @@ def fetch_file(url: str, dest_path: Path, token: Optional[str] = None, verbose: 
         raise RuntimeError(f"Network error downloading {url}: {e.reason}")
 
 
-def list_directory_contents(owner: str, repo: str, branch: str, path: str, 
-                            token: Optional[str] = None, verbose: bool = False) -> list:
+def list_directory_contents(
+    owner: str,
+    repo: str,
+    branch: str,
+    path: str,
+    token: str | None = None,
+    verbose: bool = False,
+) -> list:
     """List contents of a GitHub directory using API."""
     api_url = to_api_url(owner, repo, branch, path)
     contents = fetch_json(api_url, token, verbose)
-    
+
     if not isinstance(contents, list):
         raise RuntimeError(f"Expected directory at {path}, got file")
-    
+
     return contents
 
 
@@ -155,13 +163,13 @@ def sanitize_filename(name: str) -> str:
     if not name or not name.strip():
         raise RuntimeError("Empty filename received from GitHub API")
 
-    if '/' in name or '\\' in name:
+    if "/" in name or "\\" in name:
         raise RuntimeError(f"Path separator in filename: {name!r}")
 
-    if '..' in name:
+    if ".." in name:
         raise RuntimeError(f"Path traversal attempt in filename: {name!r}")
 
-    if name == '.':
+    if name == ".":
         raise RuntimeError(f"Invalid filename: {name!r}")
 
     if os.path.basename(name) != name:
@@ -175,15 +183,20 @@ def verify_path_containment(child: Path, parent: Path) -> None:
     try:
         child.resolve().relative_to(parent.resolve())
     except ValueError:
-        raise RuntimeError(
-            f"Path escapes destination directory: {child} is not inside {parent}"
-        )
+        raise RuntimeError(f"Path escapes destination directory: {child} is not inside {parent}")
 
 
-def download_directory(owner: str, repo: str, branch: str, path: str,
-                       dest_dir: Path, token: Optional[str] = None,
-                       verbose: bool = False, current_depth: int = 0,
-                       max_depth: int = 5) -> list:
+def download_directory(
+    owner: str,
+    repo: str,
+    branch: str,
+    path: str,
+    dest_dir: Path,
+    token: str | None = None,
+    verbose: bool = False,
+    current_depth: int = 0,
+    max_depth: int = 5,
+) -> list:
     """
     Recursively download directory contents from GitHub.
     Returns list of downloaded file paths (relative to dest_dir).
@@ -215,8 +228,7 @@ def download_directory(owner: str, repo: str, branch: str, path: str,
             subdir.mkdir(parents=True, exist_ok=True)
             sub_path = f"{path}/{item_name}"
             sub_files = download_directory(
-                owner, repo, branch, sub_path, subdir,
-                token, verbose, current_depth + 1, max_depth
+                owner, repo, branch, sub_path, subdir, token, verbose, current_depth + 1, max_depth
             )
             downloaded.extend([f"{item_name}/{f}" for f in sub_files])
 
@@ -227,18 +239,19 @@ def download_directory(owner: str, repo: str, branch: str, path: str,
 # Validation
 # =============================================================================
 
+
 def parse_simple_yaml(yaml_str: str) -> dict:
     """
     Parse simple key: value YAML (no nested objects, no lists).
     Sufficient for SKILL.md frontmatter.
     """
     result = {}
-    for line in yaml_str.strip().split('\n'):
+    for line in yaml_str.strip().split("\n"):
         line = line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
-        if ':' in line:
-            key, value = line.split(':', 1)
+        if ":" in line:
+            key, value = line.split(":", 1)
             result[key.strip()] = value.strip().strip('"').strip("'")
     return result
 
@@ -249,34 +262,34 @@ def validate_skill_md(file_path: Path) -> tuple[bool, str]:
     Returns (success, error_message).
     """
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = file_path.read_text(encoding="utf-8")
     except Exception as e:
         return False, f"Cannot read file: {e}"
-    
-    if not content.startswith('---'):
+
+    if not content.startswith("---"):
         return False, "Missing YAML frontmatter (must start with ---)"
-    
-    parts = content.split('---', 2)
+
+    parts = content.split("---", 2)
     if len(parts) < 3:
         return False, "Invalid frontmatter (missing closing ---)"
-    
+
     try:
         frontmatter = parse_simple_yaml(parts[1])
     except Exception as e:
         return False, f"Invalid YAML: {e}"
-    
-    if 'name' not in frontmatter:
+
+    if "name" not in frontmatter:
         return False, "Missing required field: name"
-    if 'description' not in frontmatter:
+    if "description" not in frontmatter:
         return False, "Missing required field: description"
-    
+
     return True, ""
 
 
 def validate_python(file_path: Path) -> tuple[bool, str]:
     """Validate Python syntax using ast.parse()."""
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = file_path.read_text(encoding="utf-8")
         ast.parse(content)
         return True, ""
     except SyntaxError as e:
@@ -289,10 +302,7 @@ def validate_shell(file_path: Path) -> tuple[bool, str]:
     """Validate shell script syntax using bash -n."""
     try:
         result = subprocess.run(
-            ['bash', '-n', str(file_path)],
-            capture_output=True,
-            text=True,
-            timeout=10
+            ["bash", "-n", str(file_path)], capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0:
             return False, f"Shell syntax error: {result.stderr.strip()}"
@@ -307,7 +317,7 @@ def validate_shell(file_path: Path) -> tuple[bool, str]:
 def validate_json(file_path: Path) -> tuple[bool, str]:
     """Validate JSON syntax."""
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = file_path.read_text(encoding="utf-8")
         json.loads(content)
         return True, ""
     except json.JSONDecodeError as e:
@@ -319,7 +329,7 @@ def validate_json(file_path: Path) -> tuple[bool, str]:
 def validate_yaml(file_path: Path) -> tuple[bool, str]:
     """Validate basic YAML structure."""
     try:
-        content = file_path.read_text(encoding='utf-8')
+        content = file_path.read_text(encoding="utf-8")
         # Basic check: can we parse key: value pairs?
         parse_simple_yaml(content)
         return True, ""
@@ -334,16 +344,16 @@ def validate_file(file_path: Path, verbose: bool = False) -> tuple[bool, str]:
     """
     name = file_path.name.lower()
     suffix = file_path.suffix.lower()
-    
-    if name == 'skill.md':
+
+    if name == "skill.md":
         return validate_skill_md(file_path)
-    elif suffix == '.py':
+    elif suffix == ".py":
         return validate_python(file_path)
-    elif suffix == '.sh':
+    elif suffix == ".sh":
         return validate_shell(file_path)
-    elif suffix == '.json':
+    elif suffix == ".json":
         return validate_json(file_path)
-    elif suffix in ('.yaml', '.yml'):
+    elif suffix in (".yaml", ".yml"):
         return validate_yaml(file_path)
     else:
         # No validation for other file types
@@ -356,20 +366,20 @@ def validate_all_files(directory: Path, verbose: bool = False) -> tuple[bool, li
     Returns (all_valid, list_of_errors).
     """
     errors = []
-    
+
     # First check: SKILL.md must exist
     skill_md = directory / "SKILL.md"
     if not skill_md.exists():
         errors.append("SKILL.md not found in skill directory")
         return False, errors
-    
+
     # Validate all files
-    for file_path in directory.rglob('*'):
+    for file_path in directory.rglob("*"):
         if file_path.is_file():
             valid, error = validate_file(file_path, verbose)
             if not valid:
                 errors.append(f"{file_path.name}: {error}")
-    
+
     return len(errors) == 0, errors
 
 
@@ -377,33 +387,31 @@ def validate_all_files(directory: Path, verbose: bool = False) -> tuple[bool, li
 # Safety Checks
 # =============================================================================
 
+
 def check_root_skills_directory_safety(dest: Path, force: bool) -> None:
     """
     Abort if destination looks like a root skills directory.
-    
+
     Root skills directory = has subdirs with SKILL.md but no SKILL.md itself.
     Fresh/empty directories are allowed.
     """
     if not dest.exists() or not dest.is_dir() or force:
         return  # Safe to proceed
-    
+
     has_skill_md = (dest / "SKILL.md").exists()
     if has_skill_md:
         return  # This IS a skill, safe to update
-    
+
     # Check for subdirectories containing SKILL.md (installed skills)
-    installed_skills = [
-        d.name for d in dest.iterdir() 
-        if d.is_dir() and (d / "SKILL.md").exists()
-    ]
-    
+    installed_skills = [d.name for d in dest.iterdir() if d.is_dir() and (d / "SKILL.md").exists()]
+
     if installed_skills:
         # DANGER: This is a root skills directory!
         print("=" * 60, file=sys.stderr)
         print("CRITICAL ERROR: Root Skills Directory Detected", file=sys.stderr)
         print("=" * 60, file=sys.stderr)
         print(f"\nDestination: {dest}", file=sys.stderr)
-        print(f"\nThis appears to be a root skills directory containing:", file=sys.stderr)
+        print("\nThis appears to be a root skills directory containing:", file=sys.stderr)
         for skill in installed_skills[:5]:
             print(f"  • {skill}", file=sys.stderr)
         if len(installed_skills) > 5:
@@ -416,8 +424,8 @@ def check_root_skills_directory_safety(dest: Path, force: bool) -> None:
 def file_hash(file_path: Path) -> str:
     """Calculate MD5 hash of a file for comparison."""
     hasher = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(8192), b''):
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
             hasher.update(chunk)
     return hasher.hexdigest()
 
@@ -425,7 +433,7 @@ def file_hash(file_path: Path) -> str:
 def compare_skill_directories(new_dir: Path, existing_dir: Path) -> dict:
     """
     Compare two skill directories and return differences.
-    
+
     Returns:
         {
             "identical": bool,
@@ -434,30 +442,31 @@ def compare_skill_directories(new_dir: Path, existing_dir: Path) -> dict:
             "modified": [list of changed files],
         }
     """
+
     def get_relative_files(base: Path) -> dict:
         """Get all files relative to base with their hashes."""
         files = {}
-        for file_path in base.rglob('*'):
+        for file_path in base.rglob("*"):
             if file_path.is_file():
                 rel_path = str(file_path.relative_to(base))
                 files[rel_path] = file_hash(file_path)
         return files
-    
+
     new_files = get_relative_files(new_dir)
     existing_files = get_relative_files(existing_dir)
-    
+
     new_set = set(new_files.keys())
     existing_set = set(existing_files.keys())
-    
+
     added = sorted(new_set - existing_set)
     removed = sorted(existing_set - new_set)
-    
+
     # Check for modified files (same name, different hash)
     common = new_set & existing_set
     modified = sorted([f for f in common if new_files[f] != existing_files[f]])
-    
+
     identical = len(added) == 0 and len(removed) == 0 and len(modified) == 0
-    
+
     return {
         "identical": identical,
         "added": added,
@@ -469,48 +478,54 @@ def compare_skill_directories(new_dir: Path, existing_dir: Path) -> dict:
 def display_skill_diff(diff: dict, dest: Path, force: bool) -> bool:
     """
     Display diff and prompt user for confirmation.
-    
+
     Returns True if user approves (or force=True), False otherwise.
     """
     if diff["identical"]:
         print(f"\n✓ Skill is already up to date: {dest}")
         return False  # No need to reinstall
-    
+
     print(f"\n📋 Changes detected for skill at: {dest}")
     print("-" * 50)
-    
+
     if diff["added"]:
-        print(f"\n  ➕ New files ({len(diff['added'])}):", )
+        print(
+            f"\n  ➕ New files ({len(diff['added'])}):",
+        )
         for f in diff["added"][:10]:
             print(f"      {f}")
         if len(diff["added"]) > 10:
             print(f"      ... and {len(diff['added']) - 10} more")
-    
+
     if diff["removed"]:
-        print(f"\n  ➖ Removed files ({len(diff['removed'])}):", )
+        print(
+            f"\n  ➖ Removed files ({len(diff['removed'])}):",
+        )
         for f in diff["removed"][:10]:
             print(f"      {f}")
         if len(diff["removed"]) > 10:
             print(f"      ... and {len(diff['removed']) - 10} more")
-    
+
     if diff["modified"]:
-        print(f"\n  📝 Modified files ({len(diff['modified'])}):", )
+        print(
+            f"\n  📝 Modified files ({len(diff['modified'])}):",
+        )
         for f in diff["modified"][:10]:
             print(f"      {f}")
         if len(diff["modified"]) > 10:
             print(f"      ... and {len(diff['modified']) - 10} more")
-    
+
     print("-" * 50)
-    
+
     if force:
         print("  (--force specified, proceeding without prompt)")
         return True
-    
+
     try:
         if not sys.stdin.isatty():
             raise EOFError
         response = input("\nProceed with update? [y/N]: ")
-        return response.lower() == 'y'
+        return response.lower() == "y"
     except EOFError:
         print("\n  Non-interactive mode: update requires --force to proceed.")
         return False
@@ -530,22 +545,22 @@ def compute_directory_hash(directory: Path) -> str:
     """
     hasher = hashlib.sha256()
     file_paths = sorted(
-        [p for p in directory.rglob('*') if p.is_file()],
-        key=lambda p: str(p.relative_to(directory))
+        [p for p in directory.rglob("*") if p.is_file()],
+        key=lambda p: str(p.relative_to(directory)),
     )
     for file_path in file_paths:
         rel_path = str(file_path.relative_to(directory))
-        hasher.update(rel_path.encode('utf-8'))
+        hasher.update(rel_path.encode("utf-8"))
         try:
-            with open(file_path, 'rb') as f:
-                for chunk in iter(lambda: f.read(8192), b''):
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
                     hasher.update(chunk)
         except OSError:
             continue  # Skip unreadable files
     return f"sha256:{hasher.hexdigest()}"
 
 
-def extract_skill_version(skill_dir: Path) -> Optional[str]:
+def extract_skill_version(skill_dir: Path) -> str | None:
     """
     Extract version from SKILL.md using fallback methods:
     1. YAML frontmatter 'version' field
@@ -557,23 +572,23 @@ def extract_skill_version(skill_dir: Path) -> Optional[str]:
         return None
 
     try:
-        content = skill_md.read_text(encoding='utf-8')
+        content = skill_md.read_text(encoding="utf-8")
     except OSError:
         return None
 
     # Method 1: Check frontmatter for version field
-    if content.startswith('---'):
-        parts = content.split('---', 2)
+    if content.startswith("---"):
+        parts = content.split("---", 2)
         if len(parts) >= 3:
             try:
                 frontmatter = parse_simple_yaml(parts[1])
-                if 'version' in frontmatter and frontmatter['version']:
-                    return frontmatter['version']
+                if "version" in frontmatter and frontmatter["version"]:
+                    return frontmatter["version"]
             except Exception:
                 pass
 
     # Method 2: Check HTML comment <!-- Version: X.Y.Z -->
-    version_match = re.search(r'<!--\s*Version:\s*(\S+)\s*-->', content, re.IGNORECASE)
+    version_match = re.search(r"<!--\s*Version:\s*(\S+)\s*-->", content, re.IGNORECASE)
     if version_match:
         return version_match.group(1)
 
@@ -587,16 +602,16 @@ def _extract_skill_description(skill_dir: Path) -> str:
         return ""
 
     try:
-        content = skill_md.read_text(encoding='utf-8')
+        content = skill_md.read_text(encoding="utf-8")
     except OSError:
         return ""
 
-    if content.startswith('---'):
-        parts = content.split('---', 2)
+    if content.startswith("---"):
+        parts = content.split("---", 2)
         if len(parts) >= 3:
             try:
                 frontmatter = parse_simple_yaml(parts[1])
-                return frontmatter.get('description', '')
+                return frontmatter.get("description", "")
             except Exception:
                 pass
     return ""
@@ -606,7 +621,7 @@ def read_manifest(manifest_path: Path) -> dict:
     """Read existing skills.lock.json or return empty manifest structure."""
     if manifest_path.exists() and manifest_path.is_file():
         try:
-            content = manifest_path.read_text(encoding='utf-8')
+            content = manifest_path.read_text(encoding="utf-8")
             data = json.loads(content)
             if isinstance(data, dict) and "skills" in data:
                 return data
@@ -620,10 +635,10 @@ def read_manifest(manifest_path: Path) -> dict:
 
 def write_manifest(manifest_path: Path, manifest: dict) -> None:
     """Atomically write manifest to disk using tmp + rename."""
-    tmp_path = manifest_path.with_suffix('.tmp')
+    tmp_path = manifest_path.with_suffix(".tmp")
     try:
-        content = json.dumps(manifest, indent=2, ensure_ascii=False) + '\n'
-        tmp_path.write_text(content, encoding='utf-8')
+        content = json.dumps(manifest, indent=2, ensure_ascii=False) + "\n"
+        tmp_path.write_text(content, encoding="utf-8")
         os.replace(str(tmp_path), str(manifest_path))
     except OSError:
         # Fallback: try direct write
@@ -631,8 +646,7 @@ def write_manifest(manifest_path: Path, manifest: dict) -> None:
             if tmp_path.exists():
                 tmp_path.unlink()
             manifest_path.write_text(
-                json.dumps(manifest, indent=2, ensure_ascii=False) + '\n',
-                encoding='utf-8'
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
             )
         except OSError as e:
             print(f"  Warning: Could not write manifest: {e}")
@@ -650,7 +664,7 @@ def update_manifest_entry(dest: Path, source_url: str, verbose: bool = False) ->
     manifest = read_manifest(manifest_path)
 
     # Count files
-    file_count = sum(1 for p in dest.rglob('*') if p.is_file())
+    file_count = sum(1 for p in dest.rglob("*") if p.is_file())
 
     # Compute hash and extract metadata
     files_hash = compute_directory_hash(dest)
@@ -709,9 +723,10 @@ def display_manifest(manifest_path: Path) -> None:
 # Installation
 # =============================================================================
 
+
 def _check_for_symlinks(directory: Path) -> None:
     """Raise RuntimeError if directory contains any symlinks."""
-    for item in directory.rglob('*'):
+    for item in directory.rglob("*"):
         if item.is_symlink():
             raise RuntimeError(
                 f"Symlink detected in existing skill directory: {item}\n"
@@ -770,7 +785,8 @@ def install_skill(temp_dir: Path, dest: Path, verbose: bool = False) -> None:
 # Security Scanning
 # =============================================================================
 
-def find_scanner_script() -> Optional[Path]:
+
+def find_scanner_script() -> Path | None:
     """Find scan_skill.py in the same directory as this script."""
     script_dir = Path(__file__).parent
     scanner = script_dir / "scan_skill.py"
@@ -804,7 +820,7 @@ def run_security_scan(skill_dir: Path, force: bool = False) -> bool:
             [sys.executable, str(scanner), str(skill_dir)],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
         print("  ERROR: Security scan timed out.", file=sys.stderr)
@@ -828,9 +844,7 @@ def run_security_scan(skill_dir: Path, force: bool = False) -> bool:
     # Extract summary and findings
     summary = report.get("summary", {})
     findings = report.get("findings", [])
-    total = (summary.get("critical", 0)
-             + summary.get("warning", 0)
-             + summary.get("info", 0))
+    total = summary.get("critical", 0) + summary.get("warning", 0) + summary.get("info", 0)
 
     if total == 0:
         print("  No security threats detected")
@@ -873,7 +887,7 @@ def run_security_scan(skill_dir: Path, force: bool = False) -> bool:
         if not sys.stdin.isatty():
             raise EOFError
         response = input("\nProceed with installation? [y/N]: ")
-        return response.lower() == 'y'
+        return response.lower() == "y"
     except EOFError:
         print("\n  Non-interactive mode: use --force to proceed despite security findings.")
         return False
@@ -883,6 +897,7 @@ def run_security_scan(skill_dir: Path, force: bool = False) -> bool:
 # Main
 # =============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Download and install AI skills from GitHub",
@@ -891,50 +906,41 @@ def main():
 Examples:
   %(prog)s --url "https://github.com/user/repo/tree/main/skills/my-skill" --dest "~/.claude/skills/my-skill"
   %(prog)s --url "https://github.com/user/repo/tree/main/skills/my-skill" --dest "/tmp/test" --dry-run
-        """
+        """,
     )
-    
+
     parser.add_argument(
-        '--url', required=False,
-        help='GitHub URL to skill folder (tree URL format)'
-    )
-    parser.add_argument(
-        '--dest', required=False,
-        help='Local destination path for skill installation'
+        "--url", required=False, help="GitHub URL to skill folder (tree URL format)"
     )
     parser.add_argument(
-        '--token',
-        help='GitHub personal access token (for private repos or higher rate limits)'
+        "--dest", required=False, help="Local destination path for skill installation"
     )
     parser.add_argument(
-        '--force', action='store_true',
-        help='Overwrite existing skill without prompting and bypass safety checks'
+        "--token", help="GitHub personal access token (for private repos or higher rate limits)"
     )
     parser.add_argument(
-        '--dry-run', action='store_true',
-        help='Show what would be downloaded without actually installing'
+        "--force",
+        action="store_true",
+        help="Overwrite existing skill without prompting and bypass safety checks",
     )
     parser.add_argument(
-        '--verbose', action='store_true',
-        help='Show detailed progress'
+        "--dry-run",
+        action="store_true",
+        help="Show what would be downloaded without actually installing",
+    )
+    parser.add_argument("--verbose", action="store_true", help="Show detailed progress")
+    parser.add_argument(
+        "--max-depth", type=int, default=5, help="Maximum directory depth to recurse (default: 5)"
     )
     parser.add_argument(
-        '--max-depth', type=int, default=5,
-        help='Maximum directory depth to recurse (default: 5)'
+        "--skip-scan", action="store_true", help="Skip security scan (not recommended)"
     )
+    parser.add_argument("--version", action="store_true", help="Show version information and exit")
     parser.add_argument(
-        '--skip-scan', action='store_true',
-        help='Skip security scan (not recommended)'
+        "--manifest",
+        help="Show installed skills from manifest (e.g., ~/.claude/skills/skills.lock.json)",
     )
-    parser.add_argument(
-        '--version', action='store_true',
-        help='Show version information and exit'
-    )
-    parser.add_argument(
-        '--manifest',
-        help='Show installed skills from manifest (e.g., ~/.claude/skills/skills.lock.json)'
-    )
-    
+
     args = parser.parse_args()
 
     # Show version
@@ -951,10 +957,10 @@ Examples:
     # Validate required arguments
     if not args.url or not args.dest:
         parser.error("the following arguments are required: --url, --dest")
-    
+
     # Expand ~ in destination path
     dest = Path(args.dest).expanduser().resolve()
-    
+
     # Parse GitHub URL
     print(f"Parsing URL: {args.url}")
     parsed = parse_github_url(args.url)
@@ -962,22 +968,26 @@ Examples:
         print("Error: Invalid GitHub URL format", file=sys.stderr)
         print("Expected: https://github.com/{owner}/{repo}/tree/{branch}/{path}", file=sys.stderr)
         sys.exit(2)
-    
+
     print(f"Repository: {parsed['owner']}/{parsed['repo']}")
     print(f"Branch: {parsed['branch']}")
     print(f"Path: {parsed['path']}")
     print(f"Destination: {dest}")
-    
+
     # Safety check: Prevent accidental targeting of root skills directory
     check_root_skills_directory_safety(dest, args.force)
-    
+
     # Dry run mode
     if args.dry_run:
         print("\n[DRY RUN] Would download:")
         try:
             contents = list_directory_contents(
-                parsed['owner'], parsed['repo'], parsed['branch'], parsed['path'],
-                args.token, args.verbose
+                parsed["owner"],
+                parsed["repo"],
+                parsed["branch"],
+                parsed["path"],
+                args.token,
+                args.verbose,
             )
             for item in contents:
                 item_type = "📁" if item["type"] == "dir" else "📄"
@@ -987,40 +997,46 @@ Examples:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         sys.exit(0)
-    
+
     # Create temp directory for atomic install
     with tempfile.TemporaryDirectory(prefix="skill_install_") as temp_dir:
         temp_path = Path(temp_dir) / "skill"
         temp_path.mkdir()
-        
+
         # Step 1: Download all files to temp
         print("\nDownloading skill files...")
         try:
             downloaded = download_directory(
-                parsed['owner'], parsed['repo'], parsed['branch'], parsed['path'],
-                temp_path, args.token, args.verbose, max_depth=args.max_depth
+                parsed["owner"],
+                parsed["repo"],
+                parsed["branch"],
+                parsed["path"],
+                temp_path,
+                args.token,
+                args.verbose,
+                max_depth=args.max_depth,
             )
         except RuntimeError as e:
             print(f"\nError during download: {e}", file=sys.stderr)
             sys.exit(1)
-        
+
         if not downloaded:
             print("Error: No files downloaded", file=sys.stderr)
             sys.exit(1)
-        
+
         print(f"\nDownloaded {len(downloaded)} file(s)")
-        
+
         # Step 2: Validate all files
         print("\nValidating files...")
         valid, errors = validate_all_files(temp_path, args.verbose)
-        
+
         if not valid:
             print("\nValidation failed:", file=sys.stderr)
             for error in errors:
                 print(f"  ✗ {error}", file=sys.stderr)
             print("\nInstallation aborted. No files were written to destination.", file=sys.stderr)
             sys.exit(2)
-        
+
         print("  ✓ All files valid")
 
         # Step 2.5: Security scan
@@ -1042,7 +1058,7 @@ Examples:
                 else:
                     print("Aborted.")
                     sys.exit(0)
-        
+
         # Step 4: Install (copy from temp to destination)
         print(f"\nInstalling to: {dest}")
         try:
@@ -1050,7 +1066,7 @@ Examples:
         except Exception as e:
             print(f"\nError during installation: {e}", file=sys.stderr)
             sys.exit(3)
-    
+
     # Step 5: Update manifest
     try:
         update_manifest_entry(dest, args.url, args.verbose)
@@ -1061,5 +1077,5 @@ Examples:
     sys.exit(0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

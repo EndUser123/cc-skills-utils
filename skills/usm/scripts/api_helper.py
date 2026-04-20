@@ -20,7 +20,6 @@ Location: .claude/skills/universal-skills-manager/scripts/api_helper.py
 """
 
 import os
-import sys
 from pathlib import Path
 
 # Track if we've already loaded to avoid redundant reads
@@ -51,6 +50,7 @@ def _auto_load_config():
 
         # Load config
         import json
+
         with open(config_file) as f:
             config = json.load(f)
 

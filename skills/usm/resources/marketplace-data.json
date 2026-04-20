@@ -1,0 +1,161 @@
+{
+  "lastUpdated": "2026-03-24",
+  "sources": [
+    {
+      "id": "claude-plugins-official",
+      "name": "claude-plugins-official",
+      "displayName": "Official Plugins",
+      "type": "plugin",
+      "url": "https://github.com/anthropics/claude-plugins-official",
+      "listings": 118,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "From marketplace.json — official Anthropic plugins"
+    },
+    {
+      "id": "skillsmp",
+      "name": "skillsmp.com",
+      "displayName": "SkillsMP",
+      "type": "skill",
+      "url": "https://skillsmp.com",
+      "listings": 3601,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "Curated skills with AI semantic search. Requires API key."
+    },
+    {
+      "id": "skillhub",
+      "name": "skills.palebluedot.live",
+      "displayName": "SkillHub",
+      "type": "skill",
+      "url": "https://skills.palebluedot.live",
+      "listings": null,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "Open catalog, community skills, no API key required."
+    },
+    {
+      "id": "clawhub",
+      "name": "clawhub.ai",
+      "displayName": "ClawHub",
+      "type": "skill",
+      "url": "https://clawhub.ai",
+      "listings": null,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "Versioned skills with semantic search. No API key required."
+    },
+    {
+      "id": "skillssh",
+      "name": "skills.sh",
+      "displayName": "skills.sh",
+      "type": "skill",
+      "url": "https://skills.sh",
+      "listings": null,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "GitHub-indexed skills via skills.sh registry."
+    },
+    {
+      "id": "claudemarketplaces",
+      "name": "claudemarketplaces.com",
+      "displayName": "Claude Marketplaces",
+      "type": "community",
+      "url": "https://claudemarketplaces.com",
+      "listings": 3180,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "2,315 skills + 770 MCP servers + 95 marketplaces"
+    },
+    {
+      "id": "claude-plugins-dev",
+      "name": "claude-plugins.dev",
+      "displayName": "Claude Plugins Dev",
+      "type": "directory",
+      "url": "https://claude-plugins.dev",
+      "listings": null,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "CLI registry indexing multiple marketplaces"
+    },
+    {
+      "id": "skillsdirectory",
+      "name": "skillsdirectory.com",
+      "displayName": "Skills Directory",
+      "type": "skill",
+      "url": "https://skillsdirectory.com",
+      "listings": 36241,
+      "stars": null,
+      "categories": null,
+      "securityScanned": true,
+      "securityGrade": "A",
+      "securityGradePct": 94,
+      "installs": null,
+      "notes": "9,205 browsable skills, 36,109 total scanned. 94% Grade A."
+    },
+    {
+      "id": "composio",
+      "name": "ComposioHQ/awesome-claude-skills",
+      "displayName": "Composio Awesome Claude Skills",
+      "type": "skill",
+      "url": "https://github.com/ComposioHQ/awesome-claude-skills",
+      "listings": 147,
+      "stars": 34500,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "147 curated skills"
+    },
+    {
+      "id": "quemsah",
+      "name": "quemsah/awesome-claude-plugins",
+      "displayName": "Quemsah Awesome Claude Plugins",
+      "type": "plugin",
+      "url": "https://github.com/quemsah/awesome-claude-plugins",
+      "listings": null,
+      "stars": null,
+      "categories": null,
+      "securityScanned": false,
+      "installs": null,
+      "notes": "GitHub curation list"
+    }
+  ],
+  "totals": {
+    "totalListingsIndexed": 12185,
+    "totalOfficialPlugins": 118,
+    "totalSecurityScanned": 36109,
+    "totalGitHubStars": 48900
+  },
+  "securityGrades": {
+    "gradeA": { "count": 34092, "pct": 94 },
+    "gradeB": { "count": 1201, "pct": 3 },
+    "gradeC": { "count": 576, "pct": 2 },
+    "gradeD": { "count": 156, "pct": 0.4 },
+    "gradeF": { "count": 84, "pct": 0.2 }
+  },
+  "categories": [
+    { "id": "code-review", "name": "Code Review", "count": 12 },
+    { "id": "debugging", "name": "Debugging", "count": 8 },
+    { "id": "testing", "name": "Testing", "count": 15 },
+    { "id": "deployment", "name": "Deployment", "count": 7 },
+    { "id": "security", "name": "Security", "count": 6 },
+    { "id": "database", "name": "Database", "count": 9 },
+    { "id": "api", "name": "API", "count": 11 },
+    { "id": "monitoring", "name": "Monitoring", "count": 5 }
+  ],
+  "updateInstructions": "To update marketplace data: Run `python scripts/update_marketplace_data.py` to live-query all sources and automatically reconcile. Use --dry-run to preview changes before applying."
+}

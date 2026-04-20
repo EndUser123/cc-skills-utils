@@ -30,12 +30,12 @@ Exit codes:
     2 - Error (file not found, parse error, etc.)
 """
 
-import re
-import sys
-import os
 import json
-import tempfile
+import os
+import re
 import shutil
+import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -45,7 +45,14 @@ VERSION = "1.0.0"
 # Agent Skills Specification Constants
 # =============================================================================
 
-ALLOWED_TOP_LEVEL_KEYS = {"name", "description", "license", "compatibility", "metadata", "allowed-tools"}
+ALLOWED_TOP_LEVEL_KEYS = {
+    "name",
+    "description",
+    "license",
+    "compatibility",
+    "metadata",
+    "allowed-tools",
+}
 NAME_MAX_LENGTH = 64
 DESCRIPTION_MAX_LENGTH = 1024
 COMPATIBILITY_MAX_LENGTH = 500
@@ -56,6 +63,7 @@ CONSECUTIVE_HYPHENS = re.compile(r"--")
 # =============================================================================
 # Minimal YAML Frontmatter Parser (zero dependencies)
 # =============================================================================
+
 
 def parse_frontmatter(content: str) -> tuple:
     """Parse YAML frontmatter from SKILL.md content.
@@ -76,8 +84,8 @@ def parse_frontmatter(content: str) -> tuple:
         if not end_match:
             raise ValueError("Could not find closing YAML frontmatter delimiter (---)")
 
-    raw_fm = content[4:3 + end_match.start() + 1]  # between the --- markers
-    body = content[3 + end_match.end():]
+    raw_fm = content[4 : 3 + end_match.start() + 1]  # between the --- markers
+    body = content[3 + end_match.end() :]
 
     data = _parse_yaml_minimal(raw_fm)
 
@@ -280,6 +288,7 @@ def _parse_yaml_value(s: str):
 # Validation
 # =============================================================================
 
+
 def validate(data: dict) -> list:
     """Validate frontmatter dict against Agent Skills spec.
 
@@ -289,84 +298,166 @@ def validate(data: dict) -> list:
 
     # Check required fields
     if "name" not in data:
-        issues.append({"level": "error", "field": "name", "message": "Required field 'name' is missing"})
+        issues.append(
+            {"level": "error", "field": "name", "message": "Required field 'name' is missing"}
+        )
     if "description" not in data:
-        issues.append({"level": "error", "field": "description", "message": "Required field 'description' is missing"})
+        issues.append(
+            {
+                "level": "error",
+                "field": "description",
+                "message": "Required field 'description' is missing",
+            }
+        )
 
     # Check for unsupported top-level keys
     for key in data:
         if key.startswith("_"):
             continue  # skip internal metadata keys
         if key not in ALLOWED_TOP_LEVEL_KEYS:
-            issues.append({
-                "level": "error",
-                "field": key,
-                "message": f"Unsupported top-level key '{key}'. Allowed: {', '.join(sorted(ALLOWED_TOP_LEVEL_KEYS))}"
-            })
+            issues.append(
+                {
+                    "level": "error",
+                    "field": key,
+                    "message": f"Unsupported top-level key '{key}'. Allowed: {', '.join(sorted(ALLOWED_TOP_LEVEL_KEYS))}",
+                }
+            )
 
     # Validate name
     name = data.get("name", "")
     if name:
         if not isinstance(name, str):
-            issues.append({"level": "error", "field": "name", "message": f"'name' must be a string, got {type(name).__name__}"})
+            issues.append(
+                {
+                    "level": "error",
+                    "field": "name",
+                    "message": f"'name' must be a string, got {type(name).__name__}",
+                }
+            )
         else:
             if len(name) > NAME_MAX_LENGTH:
-                issues.append({"level": "error", "field": "name", "message": f"'name' exceeds {NAME_MAX_LENGTH} chars (got {len(name)})"})
+                issues.append(
+                    {
+                        "level": "error",
+                        "field": "name",
+                        "message": f"'name' exceeds {NAME_MAX_LENGTH} chars (got {len(name)})",
+                    }
+                )
             if not NAME_PATTERN.match(name):
-                issues.append({"level": "error", "field": "name", "message": "'name' must be lowercase letters, numbers, and hyphens only"})
+                issues.append(
+                    {
+                        "level": "error",
+                        "field": "name",
+                        "message": "'name' must be lowercase letters, numbers, and hyphens only",
+                    }
+                )
             if CONSECUTIVE_HYPHENS.search(name):
-                issues.append({"level": "error", "field": "name", "message": "'name' must not contain consecutive hyphens (--)"})
+                issues.append(
+                    {
+                        "level": "error",
+                        "field": "name",
+                        "message": "'name' must not contain consecutive hyphens (--)",
+                    }
+                )
 
     # Validate description
     desc = data.get("description", "")
     if desc:
         if not isinstance(desc, str):
-            issues.append({"level": "error", "field": "description", "message": f"'description' must be a string, got {type(desc).__name__}"})
+            issues.append(
+                {
+                    "level": "error",
+                    "field": "description",
+                    "message": f"'description' must be a string, got {type(desc).__name__}",
+                }
+            )
         else:
             if len(desc) > DESCRIPTION_MAX_LENGTH:
-                issues.append({"level": "error", "field": "description", "message": f"'description' exceeds {DESCRIPTION_MAX_LENGTH} chars (got {len(desc)})"})
+                issues.append(
+                    {
+                        "level": "error",
+                        "field": "description",
+                        "message": f"'description' exceeds {DESCRIPTION_MAX_LENGTH} chars (got {len(desc)})",
+                    }
+                )
             # Anthropic's quick_validate.py rejects angle brackets in description
-            if '<' in desc or '>' in desc:
-                issues.append({"level": "error", "field": "description", "message": "Description cannot contain angle brackets (< or >)"})
+            if "<" in desc or ">" in desc:
+                issues.append(
+                    {
+                        "level": "error",
+                        "field": "description",
+                        "message": "Description cannot contain angle brackets (< or >)",
+                    }
+                )
 
     # Validate compatibility
     compat = data.get("compatibility")
     if compat is not None:
         if not isinstance(compat, str):
-            issues.append({"level": "error", "field": "compatibility", "message": f"'compatibility' must be a string, got {type(compat).__name__}"})
+            issues.append(
+                {
+                    "level": "error",
+                    "field": "compatibility",
+                    "message": f"'compatibility' must be a string, got {type(compat).__name__}",
+                }
+            )
         elif len(compat) > COMPATIBILITY_MAX_LENGTH:
-            issues.append({"level": "error", "field": "compatibility", "message": f"'compatibility' exceeds {COMPATIBILITY_MAX_LENGTH} chars (got {len(compat)})"})
+            issues.append(
+                {
+                    "level": "error",
+                    "field": "compatibility",
+                    "message": f"'compatibility' exceeds {COMPATIBILITY_MAX_LENGTH} chars (got {len(compat)})",
+                }
+            )
 
     # Validate metadata (must be flat string key-value pairs)
     meta = data.get("metadata")
     if meta is not None:
         if not isinstance(meta, dict):
-            issues.append({"level": "error", "field": "metadata", "message": f"'metadata' must be a mapping, got {type(meta).__name__}"})
+            issues.append(
+                {
+                    "level": "error",
+                    "field": "metadata",
+                    "message": f"'metadata' must be a mapping, got {type(meta).__name__}",
+                }
+            )
         else:
             for mk, mv in meta.items():
                 if isinstance(mv, dict):
-                    issues.append({
-                        "level": "error",
-                        "field": f"metadata.{mk}",
-                        "message": f"Nested object in metadata.{mk} — Claude Desktop only allows flat string values"
-                    })
+                    issues.append(
+                        {
+                            "level": "error",
+                            "field": f"metadata.{mk}",
+                            "message": f"Nested object in metadata.{mk} — Claude Desktop only allows flat string values",
+                        }
+                    )
                 elif isinstance(mv, list):
-                    issues.append({
-                        "level": "error",
-                        "field": f"metadata.{mk}",
-                        "message": f"Array in metadata.{mk} — Claude Desktop only allows flat string values"
-                    })
+                    issues.append(
+                        {
+                            "level": "error",
+                            "field": f"metadata.{mk}",
+                            "message": f"Array in metadata.{mk} — Claude Desktop only allows flat string values",
+                        }
+                    )
                 elif not isinstance(mv, str):
-                    issues.append({
-                        "level": "warning",
-                        "field": f"metadata.{mk}",
-                        "message": f"metadata.{mk} is {type(mv).__name__}, should be a string (quote it)"
-                    })
+                    issues.append(
+                        {
+                            "level": "warning",
+                            "field": f"metadata.{mk}",
+                            "message": f"metadata.{mk} is {type(mv).__name__}, should be a string (quote it)",
+                        }
+                    )
 
     # Validate allowed-tools (must be space-delimited string, not a YAML list)
     at = data.get("allowed-tools")
     if at is not None and not isinstance(at, str) and not data.get("_allowed_tools_is_list"):
-        issues.append({"level": "error", "field": "allowed-tools", "message": f"'allowed-tools' must be a space-delimited string, not a YAML list. Use: allowed-tools: Read Write Edit"})
+        issues.append(
+            {
+                "level": "error",
+                "field": "allowed-tools",
+                "message": "'allowed-tools' must be a space-delimited string, not a YAML list. Use: allowed-tools: Read Write Edit",
+            }
+        )
 
     # Check for block scalars in description
     # Note: Testing (2026-02-14) confirmed that folded scalars (>) work in Claude Desktop.
@@ -378,39 +469,49 @@ def validate(data: dict) -> list:
     if "description" in block_fields:
         info = block_fields["description"]
         if info["type"] == "|" and info["has_blank_lines"]:
-            issues.append({
-                "level": "error",
-                "field": "description",
-                "message": "Description uses a literal block scalar (|) with blank lines — known to fail in Claude Desktop. Use a simple inline string instead"
-            })
+            issues.append(
+                {
+                    "level": "error",
+                    "field": "description",
+                    "message": "Description uses a literal block scalar (|) with blank lines — known to fail in Claude Desktop. Use a simple inline string instead",
+                }
+            )
         elif info["type"] == "|":
-            issues.append({
-                "level": "warning",
-                "field": "description",
-                "message": "Description uses a literal block scalar (|) — may cause issues in Claude Desktop. Inline strings are safest"
-            })
+            issues.append(
+                {
+                    "level": "warning",
+                    "field": "description",
+                    "message": "Description uses a literal block scalar (|) — may cause issues in Claude Desktop. Inline strings are safest",
+                }
+            )
         else:
-            issues.append({
-                "level": "warning",
-                "field": "description",
-                "message": "Description uses a folded block scalar (>) — works in current Claude Desktop testing, but inline strings are safest for maximum compatibility"
-            })
+            issues.append(
+                {
+                    "level": "warning",
+                    "field": "description",
+                    "message": "Description uses a folded block scalar (>) — works in current Claude Desktop testing, but inline strings are safest for maximum compatibility",
+                }
+            )
     # Warn about block scalars in other fields too
     for field, info in block_fields.items():
         if field != "description" and field in ALLOWED_TOP_LEVEL_KEYS:
-            issues.append({
-                "level": "warning",
-                "field": field,
-                "message": f"'{field}' uses a YAML block scalar ({info['type']}) — may cause issues with strict parsers"
-            })
+            issues.append(
+                {
+                    "level": "warning",
+                    "field": field,
+                    "message": f"'{field}' uses a YAML block scalar ({info['type']}) — may cause issues with strict parsers",
+                }
+            )
 
     # Check for list-format allowed-tools
     if data.get("_allowed_tools_is_list"):
-        issues.append({
-            "level": "error",
-            "field": "allowed-tools",
-            "message": "'allowed-tools' must be a space-delimited string, not a YAML list. Use: allowed-tools: Read Write Edit"
-        })
+        issues.append(
+            {
+                "level": "error",
+                "field": "allowed-tools",
+                "message": "'allowed-tools' must be a space-delimited string, not a YAML list. Use: allowed-tools: Read Write Edit",
+            }
+        )
 
     return issues
 
@@ -418,6 +519,7 @@ def validate(data: dict) -> list:
 # =============================================================================
 # Fixer
 # =============================================================================
+
 
 def fix_frontmatter(data: dict) -> dict:
     """Fix frontmatter to comply with Agent Skills spec.
@@ -467,7 +569,7 @@ def fix_frontmatter(data: dict) -> dict:
     # Truncate description if too long
     if "description" in fixed and isinstance(fixed["description"], str):
         if len(fixed["description"]) > DESCRIPTION_MAX_LENGTH:
-            fixed["description"] = fixed["description"][:DESCRIPTION_MAX_LENGTH - 3] + "..."
+            fixed["description"] = fixed["description"][: DESCRIPTION_MAX_LENGTH - 3] + "..."
 
     # Fix allowed-tools: must be a space-delimited string
     at = fixed.get("allowed-tools")
@@ -486,7 +588,7 @@ def fix_frontmatter(data: dict) -> dict:
     # Truncate compatibility if too long
     if "compatibility" in fixed and isinstance(fixed["compatibility"], str):
         if len(fixed["compatibility"]) > COMPATIBILITY_MAX_LENGTH:
-            fixed["compatibility"] = fixed["compatibility"][:COMPATIBILITY_MAX_LENGTH - 3] + "..."
+            fixed["compatibility"] = fixed["compatibility"][: COMPATIBILITY_MAX_LENGTH - 3] + "..."
 
     return fixed
 
@@ -518,6 +620,7 @@ def _to_string(value) -> str:
 # YAML Serializer (minimal, for writing fixed frontmatter)
 # =============================================================================
 
+
 def serialize_frontmatter(data: dict) -> str:
     """Serialize a frontmatter dict back to YAML string."""
     lines = []
@@ -546,7 +649,13 @@ def _yaml_quote(value) -> str:
 
     # Always quote strings that contain special YAML characters
     needs_quoting = any(c in value for c in ":{}[]#&*!|>'\"%@`,?") or value.lower() in (
-        "true", "false", "yes", "no", "null", "on", "off"
+        "true",
+        "false",
+        "yes",
+        "no",
+        "null",
+        "on",
+        "off",
     )
 
     if needs_quoting or len(value) > 80:
@@ -559,6 +668,7 @@ def _yaml_quote(value) -> str:
 # =============================================================================
 # ZIP handling
 # =============================================================================
+
 
 def find_skill_md_in_zip(zip_path: str) -> str | None:
     """Find SKILL.md in a ZIP file, return its archive path."""
@@ -599,6 +709,7 @@ def fix_zip(zip_path: str, archive_path: str, fixed_content: str) -> None:
 # Main
 # =============================================================================
 
+
 def main():
     import argparse
 
@@ -611,12 +722,16 @@ Examples:
   python3 validate_frontmatter.py SKILL.md --fix     # Fix issues in-place
   python3 validate_frontmatter.py skill.zip --fix    # Fix SKILL.md inside ZIP
   python3 validate_frontmatter.py SKILL.md --json    # Machine-readable output
-        """
+        """,
     )
     parser.add_argument("path", help="Path to SKILL.md or .zip file")
     parser.add_argument("--fix", action="store_true", help="Fix issues (writes corrected file)")
-    parser.add_argument("--output", "-o", help="Output path for fixed file (default: overwrite input)")
-    parser.add_argument("--json", action="store_true", dest="json_output", help="Output results as JSON")
+    parser.add_argument(
+        "--output", "-o", help="Output path for fixed file (default: overwrite input)"
+    )
+    parser.add_argument(
+        "--json", action="store_true", dest="json_output", help="Output results as JSON"
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
 
     args = parser.parse_args()
@@ -680,7 +795,10 @@ Examples:
         re_errors = [i for i in re_issues if i["level"] == "error"]
 
         if re_errors:
-            print(f"\nWarning: Could not fully auto-fix all issues ({len(re_errors)} remaining).", file=sys.stderr)
+            print(
+                f"\nWarning: Could not fully auto-fix all issues ({len(re_errors)} remaining).",
+                file=sys.stderr,
+            )
             for issue in re_errors:
                 print(f"  ✗ [{issue['field']}] {issue['message']}", file=sys.stderr)
             sys.exit(1)

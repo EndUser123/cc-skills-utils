@@ -1,0 +1,4 @@
+{
+  "_comment": "API keys MUST be set via environment variable SKILLSMP_API_KEY. Do not store live keys here.",
+  "skillsmp_api_key": null
+}
