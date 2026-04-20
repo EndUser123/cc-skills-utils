@@ -1,0 +1,17 @@
+FORBIDDEN OPERATIONS - Never Do These
+
+## VCS Operations
+- NEVER use sl from P:\ root (permission errors)
+- NEVER use sl push (use git push instead)
+- NEVER attempt sapling operations without checking directory context
+
+## File Operations
+- NEVER delete without backup at P:\ root
+- NEVER refactor without backup when other instances active
+- NEVER modify critical system files without protection
+
+## Why These Are Forbidden
+- sl from P:\ root scans Windows system folders -> permission errors
+- sl push is not supported -> use git push
+- Unprotected operations can cause data loss
+- Concurrent modifications without protection cause conflicts

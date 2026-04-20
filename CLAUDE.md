@@ -2,74 +2,54 @@
 
 Utility skills for Claude Code — discovery, git operations, hooks, session management, and general tooling.
 
-## Skills (49)
+## Skills (26)
 
 | Skill | Purpose |
 |-------|---------|
-| ask | First-tool coherence (v3.5): /ask is a router — its first substantive |
-| chs | Chat History Search (/chs) |
-| cks-usage | CKS Proper Usage Enforcement |
-| cleanup | /cleanup - Directory Structure Cleanup |
-| clear_restore | /clear_restore - Remove Context Restoration File |
-| context-status | Context Status |
-| daemon | /daemon - Semantic Daemon Management |
-| discover | First-tool coherence (v3.5): /discover is for codebase exploration. |
-| exec | /exec — CWO15 Execution Entry (Context-Aware) |
-| explore | Explore (`/explore`) |
-| file-relocation-recovery | Purpose |
-| git | Git: Multi-Repo Sync + Worktree Management |
-| git-conventional-commits | Conventional Commits for CSF NIP |
-| gitbatch | /gitbatch — Batch Skill Execution (Agent-Based) |
-| github-ready | /github-ready -- Universal Package Creator & Portfolio Polisher v5.13.0 |
-| gitingest | gitingest |
-| gitready | /gitready - Universal Package Creator and Portfolio Polisher v5.20.0 |
-| handoff | Handoff - Enhanced Session Continuity and Handover System |
-| health-monitor | Health Monitor Skill |
-| hook-audit | /hook-audit - Hook Behavioral Compliance Monitoring |
-| hook-inventory | /hook-inventory - Hook File Inventory Audit |
-| hook-obs | /hook-obs - Hook Observability |
-| hooks-edit | hooks-edit Skill |
-| init | /init — Initialize CLAUDE.md |
-| main | Main Cognitive Steering Framework |
-| main-hooks | Main Cognitive Steering Framework (Hooks Mode) |
-| memory-integration | Memory Integration |
-| multi-instance-coherence | Purpose |
-| optimize-claude-md | /optimize-claude-md - Evidence-Based CLAUDE.md Optimizer |
-| push | /push - Fast Push |
-| reports | Report Manager |
-| research | Research Skill |
-| restore | Restore CKS Checkpoint |
-| s | /s - Strategy |
-| sar-help | SAR Help |
-| sar-inst | SAR Implementation |
-| scratchpad | /scratchpad - Scratchpad Worktrees |
-| search | Unified Search |
-| serena | Serena API - Semantic Code Analysis |
-| session | /session - Session Management CLI |
-| sharing-skills | Sharing Skills - Meta-Skill |
-| ship | /ship – Deploy Readiness & Runtime Snapshot |
-| task | /task - Task Orchestration |
-| task-unresolved | /task-unresolved |
-| team | /team - Multi-Agent Task Coordination |
-| telemetry | Telemetry Service |
-| timeline | Timeline |
-| track | /track — Work Thread Tracker |
-| universal-skills-manager | Universal Skills Manager |
+| ask | Universal CLI router |
+| cleanup | Cleanup workflow |
+| clear_restore | Clear restore state |
+| discover | Codebase discovery before implementation |
+| git | Multi-repo sync and worktree management |
+| gitbatch | Batch git operations |
+| git-conventional-commits | Conventional commit enforcement |
+| gitingest | Prepare repo for NotebookLM ingestion |
+| github-ready | GitHub publication preparation |
+| gitready | Universal package creator and portfolio polisher |
+| handoff | Session handoff |
+| hook-audit | Hook auditing |
+| hook-inventory | Hook inventory scanning |
+| hook-obs | Hook observability |
+| hooks-edit | Hook editing |
+| init | Project initialization |
+| main | Skill health monitoring and management |
+| main-hooks | Core hook management |
+| push | Git push wrapper |
+| restore | Session restore |
+| s | Quick shortcut skill |
+| skill-ship-workspace | Skill distribution workspace |
+| task | Task management |
+| task-unresolved | Unresolved task checking |
+| track | Item tracking |
 
 ## Artifacts Convention
 
 All runtime artifacts write to:
 
+```
+P:/.claude/.artifacts/{terminal_id}/<skill-name>/
+```
 
+`terminal_id` from `CLAUDE_TERMINAL_ID` env var (falls back to `"default"`).
 
- from  env var (falls back to ).
-
-Skills MUST NOT write state to their own directory or to the package root.
+Skills MUST NOT write state to their own directory or to the package root. The `.gitignore` covers `.evidence/`, `.state/`, `.benchmarks/`, `__pycache__/`.
 
 ## Installation
 
-Skills surfaced via junctions in :
+Skills surfaced via junctions in `.claude/skills/`:
 
+```powershell
+New-Item -ItemType Junction -Path "P:/.claude/skills/<name>" -Target "P:/packages/cc-skills-utils/skills/<name>"
+```
 
-
-Command frontends live in .
+Command frontends live in `.claude/commands/<name>.md`.
