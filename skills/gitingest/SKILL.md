@@ -13,7 +13,7 @@ workflow_steps:
 
 **Goal:** Ingest GitHub repos into NotebookLM — clone, slice, and upload in one pipeline.
 
-**Prerequisites:** `nlm` CLI (v0.3.3+) from https://github.com/jacob-bd/notebooklm-mcp-cli
+**Prerequisites:** `nlm` CLI from [jacob-bd/notebooklm-mcp-cli](https://github.com/jacob-bd/notebooklm-mcp-cli) — install via `uv tool install notebooklm-mcp-cli`. The runner auto-detects bare `nlm` (on PATH) or `uv tool run` invocation.
 
 ---
 
@@ -57,7 +57,7 @@ repos:
 1. **Clone** — `git clone --depth=1 --filter=blob:none`, optionally sparse
 2. **File lists** — `git ls-files` (repo), `.claude/` configs, `docs/` + top-level README
 3. **Slice** — repo-index, agent-configs, docs; ≤150 lines/slice; entry points inlined
-4. **Upload** — `nlm source add <notebook_id> --file <slice> --wait`
+4. **Upload** — file source (`--file <slice> --wait`) + web source (`--url <repo_url>` for clickable GitHub link)
 5. **Cleanup** — removes clone dir (always, even on error)
 6. **Status** — saves `status.json` to staging dir after each repo
 
@@ -77,9 +77,24 @@ If poll confirmation fails after max attempts, the upload is skipped with a warn
 
 ---
 
-## Web Sources
+## Web Sources — Clickable GitHub Links
 
-The pipeline also ingests web sources listed in the config under `sources.web`:
+NotebookLM has two source types with different behaviors:
+
+| `nlm source add` flag | NotebookLM type | Clickable? | Content |
+|---|---|---|---|
+| `--file <path>` | `generated_text` | No | Full file content (slice) |
+| `--url <url>` | `web_page` | **Yes** | Link to original page |
+
+**The runner automatically adds both for each repo:**
+1. A **file source** with the full sliced repo content (for NotebookLM to index and answer questions from)
+2. A **web source** linking to `https://github.com/owner/repo` (clickable in the NotebookLM UI)
+
+The web source title is set to `GitHub - owner/repo` so it's easy to identify. This is what users click to go straight to GitHub.
+
+### Adding extra web sources
+
+You can also add additional web sources via config:
 
 ```yaml
 notebooklm_id: "your-notebook-id-from-url"
@@ -91,7 +106,30 @@ sources:
       label: "Example Docs"   # used as title in NotebookLM
 ```
 
-Web sources are deduped by URL (checked against existing sources by label), using the same delete → poll → re-add lifecycle. The `nlm source add` command uses `--web <url>` instead of `--file <path>`.
+All web sources use the same dedup lifecycle (delete → poll → re-add).
+
+### Adding a clickable link manually
+
+If you need to add a clickable link outside the pipeline:
+
+```bash
+nlm source add "<notebook-id>" --url "https://github.com/owner/repo" --title "GitHub - owner/repo"
+```
+
+This creates a `web_page` source that appears as a clickable link in NotebookLM's source list.
+
+---
+
+## CLI Detection
+
+The runner auto-detects how to invoke `nlm`:
+
+1. **Bare `nlm`** — if `nlm` is on PATH (`pip install` or `uv tool install` with `~/.local/bin` on PATH)
+2. **`uv tool run --from notebooklm-mcp-cli nlm`** — fallback for uv-based installs where `nlm` isn't on PATH
+
+Install: `uv tool install notebooklm-mcp-cli`
+
+Auth check runs before any operations. If not authenticated, the runner prints the login command and aborts (unless `--dry-run`).
 
 ---
 
