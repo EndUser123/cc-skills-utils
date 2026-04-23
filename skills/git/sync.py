@@ -838,16 +838,18 @@ def _has_uncommitted_worktree_changes(repo: RepoInfo) -> bool:
     for line in status.stdout.splitlines():
         if not line:
             continue
-        # Column 1: staged status (space = unstaged modification or untracked)
-        # Column 2: worktree status
-        # Staged changes (column 1 != space) are already tracked — ignore them
-        # Untracked files start with "??"
-        # Unstaged modifications have column 2 != space
+        # Porcelain format: XY filename
+        # X = index/staged status, Y = worktree status
+        # "  " = clean in both (never happens here since stdout.strip() is non-empty)
+        # "??" = untracked file in worktree (new, not in index)
+        # X != space = staged change (already tracked, not "uncommitted" in the dirty sense)
+        # Y != space = worktree differs from index → unstaged modification
         if line.startswith("??"):
-            return True  # untracked file — new change
+            return True  # untracked file — new change not in git
         col2 = line[1:2]
         if col2 != " ":
-            return True  # unstaged modification — new change
+            return True  # worktree modification — unstaged change
+        # col1 != space (staged change) is already on origin or in a prior commit — ignore
     return False
 
 
