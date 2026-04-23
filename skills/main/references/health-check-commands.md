@@ -62,17 +62,20 @@ Complementary hook observability commands for deeper system insights:
 
 | Command | Purpose | When to Use |
 |---------|---------|-------------|
-| `/hook-obs` | Performance, traces, health from events database | Hook latency analysis, trace waterfall, regression detection |
-| `/hook-audit` | Behavioral compliance monitoring | Check LLM compliance with hook injections, blocking rates |
+| `/hook-obs stats` | Event mix and turn-scoped lookup | First-pass inject/block/warn/pass totals and turn coverage |
+| `/hook-obs health` | Health + runtime validator checks | Diagnose failing hooks and runtime/non-JSON router errors |
+| `/hook-obs blocks` | Blocking event analysis | Investigate why hooks are blocking responses |
+| `/hook-obs escalation` | Escalation recommendations | Decide warn/enforce escalation steps |
 | `/hook-inventory` | File inventory audit | Classify hooks as dead/active/router-dispatched/utility |
 | `/hooks-edit` | Edit hook files (operational) | Temporarily bypass hooks for editing |
 
 **Quick Start:**
 ```bash
-/hook-obs --health        # Hook health matrix
-/hook-obs --slow 200      # Find slow hooks
-/hook-audit               # Behavioral compliance dashboard
-/hook-inventory           # File classification audit
+/hook-obs stats                    # Event totals and top hooks
+/hook-obs health                   # Hook health + validator runtime errors
+/hook-obs blocks                   # Blocking analysis
+/hook-obs stats --turn <turn-id>   # Turn-scoped drill-down
+/hook-inventory                    # File classification audit
 ```
 
 ---

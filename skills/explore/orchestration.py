@@ -21,6 +21,7 @@ src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
 skills_path = Path(__file__).parent
+sys.path.insert(0, str(skills_path.parent))  # enables import skills.explore.*
 sys.path.insert(0, str(skills_path))
 
 # Import Layer 1 enhancements (absolute imports for package context)

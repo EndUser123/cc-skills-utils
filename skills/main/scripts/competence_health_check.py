@@ -213,7 +213,7 @@ def main():
 
     # Maintenance reminders
     print("📌 Maintenance Reminders:")
-    print("   • Review /hook-audit escalation monthly for enforcement mode changes")
+    print("   • Review /hook-obs escalation monthly for enforcement mode changes")
     print("   • Add new skills to skill_mappings in task_type_registry.json")
     print("   • Archive contract_completeness.jsonl if >10MB")
     print("   • After 2+ weeks: check if Part 2 (Behavioral Gates) is needed")

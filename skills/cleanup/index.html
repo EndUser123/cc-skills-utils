@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>/cleanup — Directory Structure Cleanup</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --card: #f3f4f6;
+      --border: #d1d5db;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --green: #16a34a;
+      --amber: #d97706;
+      --red: #dc2626;
+      --purple: #7c3aed;
+      --cyan: #0891b2;
+      --link: #2563eb;
+      --toc-width: 240px;
+    }
+    [data-theme="dark"] {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e4e4e7;
+      --muted: #71717a;
+      --accent: #60a5fa;
+      --green: #4ade80;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --purple: #c084fc;
+      --cyan: #22d3ee;
+      --link: #60a5fa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+      display: flex;
+    }
+    .toc {
+      position: fixed;
+      top: 0; left: 0;
+      width: var(--toc-width);
+      height: 100vh;
+      overflow-y: auto;
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      padding: 2rem 1rem;
+      z-index: 200;
+      font-size: 0.8rem;
+      transition: transform 0.25s ease;
+    }
+    .toc.collapsed { transform: translateX(calc(-1 * var(--toc-width))); }
+    .toc-toggle-btn {
+      position: fixed;
+      left: calc(var(--toc-width) - 16px);
+      top: 0.75rem;
+      width: 24px; height: 28px;
+      background: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 201;
+      transition: left 0.25s ease, opacity 0.15s;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.3);
+    }
+    body.toc-hidden .toc-toggle-btn { left: 0; }
+    .toc-toggle-btn:hover { opacity: 0.85; }
+    .toc h3 {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .toc a {
+      display: block;
+      color: var(--text);
+      text-decoration: none;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      margin-bottom: 0.15rem;
+      transition: background 0.15s;
+      border-left: 2px solid transparent;
+    }
+    .toc a:hover { background: var(--accent); color: #fff; }
+    .toc a.active { background: var(--accent); color: #fff; border-left-color: #fff; }
+    .content {
+      margin-left: var(--toc-width);
+      padding: 2rem 2.5rem 4rem;
+      width: calc(100% - var(--toc-width));
+      max-width: 900px;
+      transition: margin-left 0.25s ease, max-width 0.25s ease, width 0.25s ease;
+    }
+    body.toc-hidden .content { margin-left: 0; width: 100%; max-width: none; }
+    .header {
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 { font-size: 1.75rem; margin-bottom: 0.25rem; color: var(--accent); }
+    h2 { font-size: 1.1rem; margin-bottom: 0; color: var(--muted); font-weight: 400; }
+    h3 { font-size: 0.85rem; color: var(--text); font-weight: 700; margin-bottom: 0.75rem; margin-top: 0; }
+    h4 { font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-bottom: 0.4rem; margin-top: 0; }
+    .highlight { color: var(--green); font-weight: 700; }
+    .toggle-wrap {
+      position: fixed;
+      top: 1rem; right: 1rem;
+      display: flex; gap: 0.5rem;
+      align-items: center;
+      z-index: 300;
+    }
+    .toggle-label { font-size: 0.75rem; color: var(--muted); font-weight: 500; }
+    .toggle {
+      width: 44px; height: 24px;
+      background: var(--border);
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      background: white;
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: transform 0.2s;
+    }
+    [data-theme="dark"] .toggle { background: var(--accent); }
+    [data-theme="dark"] .toggle::after { transform: translateX(20px); }
+    .mermaid-container {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1rem;
+      overflow-x: auto;
+      line-height: 0;
+    }
+    .mermaid-container svg { max-width: 100%; height: auto; }
+    .diagram-wrapper {
+      position: relative;
+      overflow: hidden;
+      border-radius: 8px;
+      cursor: grab;
+      min-height: 200px;
+    }
+    .diagram-wrapper:active { cursor: grabbing; }
+    .diagram-wrapper svg { cursor: inherit; }
+    .zoom-controls {
+      position: absolute;
+      bottom: 0.5rem;
+      right: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      z-index: 5;
+    }
+    .zoom-btn {
+      width: 28px; height: 28px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 1rem;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+      transition: background 0.15s;
+    }
+    .zoom-btn:hover { background: var(--accent); color: #fff; }
+    .zoom-reset {
+      font-size: 0.65rem;
+      font-family: 'Fira Code', monospace;
+      padding: 0 4px;
+    }
+    .legend {
+      display: flex; gap: 1.25rem;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+      font-size: 0.75rem;
+      padding: 0.5rem 0;
+    }
+    .legend-item { display: flex; align-items: center; gap: 0.35rem; }
+    .legend-dot {
+      width: 0.65rem; height: 0.65rem;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .section-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin: 2.5rem 0 1.25rem;
+    }
+    .section-header h3 {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .section-header .line { flex: 1; height: 1px; background: var(--border); }
+    .stages {
+      display: flex; flex-direction: column; gap: 0.6rem;
+    }
+    .stage {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: box-shadow 0.2s;
+    }
+    .stage:hover { box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+    .stage-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 1rem 1.5rem;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .stage-header:hover { background: var(--bg); }
+    .stage-num {
+      background: var(--accent);
+      color: white;
+      font-size: 0.7rem;
+      font-weight: 700;
+      width: 1.5rem; height: 1.5rem;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .stage-name { font-weight: 600; font-size: 1rem; }
+    .stage-chevron {
+      color: var(--muted);
+      font-size: 0.7rem;
+      transition: transform 0.25s ease;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+    .stage.collapsed .stage-chevron { transform: rotate(-90deg); }
+    .stage-body {
+      padding: 0 1.5rem 1.25rem;
+      max-height: 800px;
+      overflow: hidden;
+      transition: max-height 0.35s ease, padding 0.35s ease, opacity 0.25s ease;
+      opacity: 1;
+    }
+    .stage.collapsed .stage-body { max-height: 0; padding-top: 0; opacity: 0; }
+    .steps {
+      display: flex; flex-direction: column; gap: 0.35rem;
+      margin-bottom: 0.6rem;
+    }
+    .step {
+      display: flex; align-items: flex-start; gap: 0.5rem;
+      font-size: 0.85rem; line-height: 1.5;
+    }
+    .step::before { content: '\203A'; color: var(--accent); font-weight: 700; flex-shrink: 0; }
+    .data-flow {
+      font-size: 0.75rem; color: var(--muted);
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      background: var(--bg);
+      padding: 0.4rem 0.7rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+    .data-flow::before { content: '\2192 '; color: var(--accent); }
+    .note {
+      font-size: 0.8rem; color: var(--muted);
+      padding: 0.75rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-top: 1rem;
+      line-height: 1.6;
+    }
+    .note strong { color: var(--amber); }
+    .note code {
+      background: var(--card);
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.75rem;
+      font-family: 'Fira Code', monospace;
+    }
+    .warning {
+      font-size: 0.8rem; color: var(--text);
+      padding: 0.75rem 1rem;
+      background: color-mix(in srgb, var(--amber) 15%, transparent);
+      border: 1px solid var(--amber);
+      border-radius: 6px;
+      margin-top: 1rem;
+      line-height: 1.6;
+    }
+    .warning strong { color: var(--amber); }
+    .warning code {
+      background: var(--card);
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      font-size: 0.75rem;
+      font-family: 'Fira Code', monospace;
+    }
+    .stats {
+      display: flex; gap: 0.6rem; flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+    .stat {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 1rem;
+      text-align: center;
+      flex: 1; min-width: 120px;
+      position: relative;
+      cursor: default;
+    }
+    .stat:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+    .stat-value { font-size: 1.25rem; font-weight: 700; color: var(--accent); }
+    .stat-label {
+      font-size: 0.65rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em;
+      margin-top: 0.15rem;
+    }
+    .footer {
+      margin-top: 3rem; padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.7rem; color: var(--muted); text-align: center;
+    }
+    .footer a { color: var(--link); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+    .badge {
+      display: inline-block;
+      background: var(--purple);
+      color: white;
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      margin-left: 0.5rem;
+    }
+    .badge.green { background: var(--green); }
+    .badge.amber { background: var(--amber); }
+    .badge.cyan { background: var(--cyan); }
+    code { font-family: 'Fira Code', monospace; background: var(--card); padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.8em; }
+    pre {
+      font-family: 'Fira Code', 'Cascadia Code', monospace;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      overflow-x: auto;
+      margin-bottom: 1rem;
+    }
+    .table-wrap { overflow-x: auto; margin-bottom: 1rem; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th {
+      text-align: left;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      border-bottom: 2px solid var(--border);
+      padding: 0.5rem 0.75rem;
+    }
+    td {
+      padding: 0.5rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: var(--card); }
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.6rem;
+      margin: 0.75rem 0;
+    }
+    .mode-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+    }
+    .mode-card .mname { font-weight: 600; font-size: 0.85rem; margin-bottom: 0.3rem; }
+    .mode-card .mcmd { font-family: 'Fira Code', monospace; font-size: 0.7rem; color: var(--accent); margin-bottom: 0.3rem; }
+    .mode-card .mdesc { font-size: 0.75rem; color: var(--muted); line-height: 1.4; }
+    @media (max-width: 800px) {
+      .toc { transform: translateX(calc(-1 * var(--toc-width))); }
+      .toc.collapsed { transform: translateX(0); }
+      .content { margin-left: 0; padding: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<button class="toc-toggle-btn" id="tocToggle" title="Toggle sidebar">&#9776;</button>
+
+<nav class="toc" id="toc">
+  <h3>/cleanup</h3>
+  <a href="#diagram" data-section="diagram">Architecture Diagram</a>
+  <a href="#phases" data-section="phases">Two-Phase Approach</a>
+  <a href="#modes" data-section="modes">Modes</a>
+  <a href="#claude-dir" data-section="claude-dir">.claude Cleanup</a>
+  <a href="#rules" data-section="rules">Validation Rules</a>
+  <a href="#integration" data-section="integration">Integration</a>
+</nav>
+
+<div class="toggle-wrap">
+  <span class="toggle-label">&#9728;&#65039;</span>
+  <div class="toggle" id="themeToggle"></div>
+  <span class="toggle-label">&#127769;</span>
+</div>
+
+<div class="content">
+
+  <div class="header">
+    <h1>/cleanup — Directory Structure Cleanup</h1>
+    <h2>Review and remediate filesystem violations with safe approval workflow</h2>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">2</div>
+      <div class="stat-label">Workflow phases</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">4</div>
+      <div class="stat-label">Cleanup modes</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">2</div>
+      <div class="stat-label">Core scripts</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- DIAGRAM -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="diagram" class="section-header">
+    <h3>Architecture Diagram</h3>
+    <div class="line"></div>
+  </div>
+
+  <div class="diagram-wrapper" id="diagramWrapper">
+    <div class="mermaid-container">
+    <pre class="mermaid" id="pipelineDiagram">
+flowchart TD
+    Start(["Start /cleanup"]) --> Scan["cleanup.py --dry-run<br/>Scan for violations"]
+    Scan --> Phase1["Phase 1: SOURCE ANALYSIS"]
+    Phase1 --> DetectSrc{"Detect creating code?"}
+    DetectSrc -->|yes| FindSrc["Find source file causing violation"]
+    FindSrc --> FixSrc["Fix source code first"]
+    FixSrc --> ReScan["Re-run cleanup.py"]
+    ReScan -.-> Scan
+    DetectSrc -->|no| Phase2["Phase 2: VIOLATION CLEANUP"]
+    Phase2 --> Review["Review violations + reasons"]
+    Review --> Approve{"Approve session?"}
+    Approve -->|no| Quit["Exit cleanup"]
+    Approve -->|yes| Loop["Per-violation action"]
+    Loop --> Act{"Choose action"}
+    Act -->|move| Move["Move to suggested location"]
+    Act -->|delete| Delete["Delete file/directory"]
+    Act -->|skip| Skip["Skip this item"]
+    Move --> Next["Next violation"]
+    Delete --> Next
+    Skip --> Next
+    Next --> CheckDone{"All done?"}
+    CheckDone -->|no| Loop
+    CheckDone -->|yes| Summary["View cleanup summary"]
+    Summary --> Verify["Compliance verification"]
+    Verify --> Done(["Cleanup complete"])
+    </pre>
+    </div>
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="zoomIn" title="Zoom in">+</button>
+      <button class="zoom-btn" id="zoomOut" title="Zoom out">-</button>
+      <button class="zoom-btn zoom-reset" id="zoomReset" title="Reset">1:1</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> Entry point</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Happy path</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Delete / Exit</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div> Decision gate</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- PHASES -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="phases" class="section-header">
+    <h3>Two-Phase Approach</h3>
+    <div class="line"></div>
+  </div>
+
+  <div class="stages">
+
+    <div class="stage">
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="stage-num">1</div>
+        <span class="stage-name">Phase 1: Source Code Analysis</span>
+        <span class="stage-chevron">&#9660;</span>
+      </div>
+      <div class="stage-body">
+        <div class="note">
+          <strong>Principle:</strong> Fix the source, not the symptom.
+        </div>
+        <div class="steps">
+          <div class="step">Run <code>cleanup.py --dry-run</code> to scan for violations</div>
+          <div class="step">Search for code generating violations: coverage configs, test enforcers, data misplacement</div>
+          <div class="step">Display source problems with file path, description, suggested fixes</div>
+          <div class="step"><strong>Fix source code first</strong> — then re-run /cleanup</div>
+        </div>
+        <div class="warning">
+          <strong>No creating code found?</strong> Violations are likely manual or dynamic. Proceed to Phase 2 but still fix the source if discovered during cleanup.
+        </div>
+        <div class="data-flow">cleanup.py --dry-run → violations → source_trace → source_fix OR "manual, proceed"</div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="stage-num">2</div>
+        <span class="stage-name">Phase 2: Violation Cleanup</span>
+        <span class="stage-chevron">&#9660;</span>
+      </div>
+      <div class="stage-body">
+        <div class="steps">
+          <div class="step">Review displayed violations with reasons and suggested actions</div>
+          <div class="step">Approve cleanup session when prompted</div>
+          <div class="step">For each violation choose: <strong>[m]ove</strong> · <strong>[d]elete</strong> · <strong>[s]kip</strong> · <strong>[q]uit</strong></div>
+          <div class="step">View cleanup summary and final compliance verification</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Action</th><th>What it does</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>[m]ove</code></td><td>Move to suggested location</td></tr>
+              <tr><td><code>[d]elete</code></td><td>Delete the file or directory</td></tr>
+              <tr><td><code>[s]kip</code></td><td>Skip this item</td></tr>
+              <tr><td><code>[q]uit</code></td><td>Exit cleanup</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="data-flow">violations → interactive_review → [m|d|s|q] → summary → verify</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- MODES -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="modes" class="section-header">
+    <h3>Cleanup Modes</h3>
+    <div class="line"></div>
+  </div>
+
+  <div class="mode-grid">
+    <div class="mode-card">
+      <div class="mname">Interactive</div>
+      <div class="mcmd">cleanup.py</div>
+      <div class="mdesc">Manual review, per-file approval</div>
+    </div>
+    <div class="mode-card">
+      <div class="mname">Dry-Run</div>
+      <div class="mcmd">cleanup.py --dry-run</div>
+      <div class="mdesc">Preview without making changes</div>
+    </div>
+    <div class="mode-card">
+      <div class="mname">Limited</div>
+      <div class="mcmd">cleanup.py --max 20</div>
+      <div class="mdesc">Quick session, fewer files</div>
+    </div>
+    <div class="mode-card">
+      <div class="mname">Auto-approve</div>
+      <div class="mcmd">cleanup.py --yes</div>
+      <div class="mdesc">Automated cleanup — <strong style="color:var(--red)">caution!</strong></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- .CLAUDE DIR -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="claude-dir" class="section-header">
+    <h3>.claude Directory Cleanup</h3>
+    <div class="line"></div>
+  </div>
+
+  <div class="stages">
+
+    <div class="stage">
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="stage-num">&#9679;</div>
+        <span class="stage-name">Separate cleanup for .claude/ junk files</span>
+        <span class="stage-chevron">&#9660;</span>
+      </div>
+      <div class="stage-body">
+        <div class="steps">
+          <div class="step">Run <code>claude_directory_cleanup.py</code> (dry-run by default)</div>
+          <div class="step">Add <code>--execute</code> to actually delete files</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Category</th><th>Patterns</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Backup files</td><td><code>*.backup*</code></td></tr>
+              <tr><td>Session debris</td><td><code>session-task-console_*.json</code>, <code>current_session.json</code></td></tr>
+              <tr><td>Temporary scripts</td><td><code>consolidate_*.py</code>, <code>temp_*.py</code>, <code>tmp_*.py</code></td></tr>
+              <tr><td>Old documentation</td><td><code>CONTEXT-FILTERING-QUICKREF.md</code>, <code>LLM_*.md</code></td></tr>
+              <tr><td>Cache directories</td><td><code>.ruff_cache/</code>, <code>.mypy_cache/</code>, <code>.pytest_cache/</code></td></tr>
+              <tr><td>Backup directories</td><td><code>backups/</code>, <code>agents.backup.*</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note">
+          Patterns defined in <code>directory_policy.json</code> under <code>claude_directory.blocked_root_patterns</code>.
+          <strong>Safe by default</strong> — always runs dry-run first unless <code>--execute</code> is passed.
+        </div>
+        <div class="data-flow">claude_directory_cleanup.py [--execute] → blocked_root_patterns match → delete</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- RULES -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="rules" class="section-header">
+    <h3>Validation Rules</h3>
+    <div class="line"></div>
+  </div>
+
+  <div class="stages">
+
+    <div class="stage">
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="stage-num">&#9679;</div>
+        <span class="stage-name">Prohibited Actions</span>
+        <span class="stage-chevron">&#9660;</span>
+      </div>
+      <div class="stage-body">
+        <div class="steps">
+          <div class="step">Do <strong>NOT</strong> cleanup without reviewing violations first</div>
+          <div class="step">Do <strong>NOT</strong> fix violations without addressing source code that created them</div>
+          <div class="step">Do <strong>NOT</strong> delete directories without checking for active references</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="stage-num">&#9679;</div>
+        <span class="stage-name">Safety Features</span>
+        <span class="stage-chevron">&#9660;</span>
+      </div>
+      <div class="stage-body">
+        <div class="steps">
+          <div class="step"><strong>Reference checking</strong> before deletion — prevents deleting actively-used directories</div>
+          <div class="step"><strong>Per-file confirmation</strong> required in interactive mode</div>
+          <div class="step"><strong>Summary + verification</strong> after cleanup</div>
+          <div class="step"><strong>Dry-run mode</strong> for preview without changes</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- INTEGRATION -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <div id="integration" class="section-header">
+    <h3>Integration with /main</h3>
+    <div class="line"></div>
+  </div>
+
+  <div class="stages">
+
+    <div class="stage">
+      <div class="stage-header" onclick="this.parentElement.classList.toggle('collapsed')">
+        <div class="stage-num">&#9679;</div>
+        <span class="stage-name">/main runs cleanup automatically</span>
+        <span class="stage-chevron">&#9660;</span>
+      </div>
+      <div class="stage-body">
+        <div class="steps">
+          <div class="step"><code>/main</code> runs <code>cleanup.py --json</code> to get violation counts</div>
+          <div class="step">Output includes violation types: <strong>UNAUTHORIZED_ROOT_DIRECTORY</strong>, <strong>UNKNOWN_CONFIG_FILE</strong>, <strong>BLOCKED_ROOT_FILE</strong>, <strong>BLOCKED_ROOT_DIRECTORY</strong></div>
+          <div class="step">Run <code>/cleanup</code> directly for detailed source-code tracing</div>
+        </div>
+        <pre>/main
+[filesystem]: Filesystem structure violations detected
+  [WARN] 27 filesystem violations (run /cleanup)
+  • UNAUTHORIZED_ROOT_DIRECTORY: 13 violations
+  • UNKNOWN_CONFIG_FILE: 9 violations
+  • BLOCKED_ROOT_FILE: 3 violations
+  • BLOCKED_ROOT_DIRECTORY: 2 violations</pre>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    /cleanup — coordinates with path_validator.py, directory_policy.json, and /main system health check
+  </div>
+
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+  let currentTheme = 'dark';
+
+  const COLORS = {
+    dark: {
+      success: '#4ade80', fallback: '#f87171',
+      discovery: '#c084fc', entry: '#60a5fa',
+      analysis: '#22d3ee', other: '#71717a',
+      labelBg: '#1a1d27'
+    },
+    light: {
+      success: '#16a34a', fallback: '#dc2626',
+      discovery: '#7c3aed', entry: '#2563eb',
+      analysis: '#0891b2', other: '#6b7280',
+      labelBg: '#f3f4f6'
+    }
+  };
+
+  function getColors() { return COLORS[currentTheme] || COLORS.dark; }
+
+  function initMermaid() {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: currentTheme === 'dark' ? 'dark' : 'default',
+      flowchart: { htmlLabels: true, curve: 'basis', padding: 15, nodeSpacing: 30, rankSpacing: 40, useMaxWidth: true }
+    });
+  }
+
+  let mermaidSource = '';
+
+  function setTheme(theme) {
+    currentTheme = theme;
+    document.documentElement.dataset.theme = theme;
+    const pre = document.getElementById('pipelineDiagram');
+    if (pre && !mermaidSource) mermaidSource = pre.textContent;
+    if (!mermaidSource) return;
+    const container = document.querySelector('.mermaid-container');
+    if (!container) return;
+    container.innerHTML = '';
+    mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default', flowchart: { htmlLabels: true, curve: 'basis', padding: 15, nodeSpacing: 30, rankSpacing: 40, useMaxWidth: true } });
+    const newPre = document.createElement('pre');
+    newPre.className = 'mermaid';
+    newPre.id = 'pipelineDiagram';
+    newPre.textContent = mermaidSource;
+    container.appendChild(newPre);
+    setTimeout(() => mermaid.run({ nodes: [newPre] }), 100);
+  }
+
+  // ── Zoom / Pan ─────────────────────────────────────────────
+  let scale = 1, tX = 0, tY = 0;
+  let dragging = false, startX = 0, startY = 0, startTX = 0, startTY = 0;
+  const MIN_SCALE = 0.25, MAX_SCALE = 3, STEP = 0.15;
+
+  function applyTransform(svg) {
+    if (!svg) return;
+    svg.style.transform = `translate(${tX}px, ${tY}px) scale(${scale})`;
+    svg.style.transformOrigin = 'top left';
+    svg.style.transition = dragging ? 'none' : 'transform 0.15s ease';
+  }
+
+  function zoomIn() {
+    scale = Math.min(MAX_SCALE, scale + STEP);
+    const svg = document.querySelector('.diagram-wrapper svg');
+    if (svg) applyTransform(svg);
+  }
+  function zoomOut() {
+    scale = Math.max(MIN_SCALE, scale - STEP);
+    const svg = document.querySelector('.diagram-wrapper svg');
+    if (svg) applyTransform(svg);
+  }
+  function zoomReset() {
+    scale = 1; tX = 0; tY = 0;
+    const svg = document.querySelector('.diagram-wrapper svg');
+    if (svg) applyTransform(svg);
+  }
+
+  document.addEventListener('click', (e) => {
+    if (e.target.id === 'zoomIn') { zoomIn(); return; }
+    if (e.target.id === 'zoomOut') { zoomOut(); return; }
+    if (e.target.id === 'zoomReset') { zoomReset(); return; }
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.zoom-controls')) return;
+    const svg = document.querySelector('.diagram-wrapper svg');
+    if (!svg || e.target !== svg) return;
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    startTX = tX; startTY = tY;
+    svg.style.transition = 'none';
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    tX = startTX + (e.clientX - startX);
+    tY = startTY + (e.clientY - startY);
+    const svg = document.querySelector('.diagram-wrapper svg');
+    if (svg) applyTransform(svg);
+  });
+  document.addEventListener('mouseup', () => {
+    if (dragging) {
+      dragging = false;
+      const svg = document.querySelector('.diagram-wrapper svg');
+      if (svg) { svg.style.transition = 'transform 0.15s ease'; }
+    }
+  });
+
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+  });
+
+  window.addEventListener('DOMContentLoaded', () => {
+    const toc = document.getElementById('toc');
+    const btn = document.getElementById('tocToggle');
+    if (toc && btn) {
+      btn.addEventListener('click', () => {
+        toc.classList.toggle('collapsed');
+        document.body.classList.toggle('toc-hidden');
+        btn.innerHTML = toc.classList.contains('collapsed') ? '&#9654;' : '&#9776;';
+      });
+    }
+    const sections = document.querySelectorAll('[id]');
+    const tocLinks = document.querySelectorAll('.toc a[data-section]');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          tocLinks.forEach(l => l.classList.remove('active'));
+          const link = document.querySelector(`.toc a[data-section="${entry.target.id}"]`);
+          if (link) link.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    sections.forEach(s => observer.observe(s));
+    initMermaid();
+  });
+</script>
+</body>
+</html>

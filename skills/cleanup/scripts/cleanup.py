@@ -45,6 +45,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime

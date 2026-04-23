@@ -24,12 +24,12 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
-from datetime import datetime
-from pathlib import Path
 
 # Paths
 TOOLS_DIR = Path(__file__).parent
@@ -223,16 +223,16 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
     # hooks: timeout issues
     ("hooks", "timeout"): [
         {
-            "skill": "/hook-audit",
-            "rationale": "Audits hook timeout configurations and identifies slow hooks",
+            "skill": "/hook-obs",
+            "rationale": "Inspects hook timeout and latency patterns from diagnostics data",
             "category": "observability",
         },
     ],
     # hooks: syntax errors
     ("hooks", "syntax"): [
         {
-            "skill": "/hook-audit",
-            "rationale": "Validates hook syntax and identifies broken hooks",
+            "skill": "/hook-obs",
+            "rationale": "Surfaces failing hooks and recent diagnostics context",
             "category": "correctness",
         },
     ],
@@ -559,6 +559,83 @@ def run_dependency_audit() -> CheckResult:
         )
 
 
+def _summarize_hook_health(hooks_dir: Path) -> dict:
+    """Read latest hook health summary from diagnostics output."""
+    health_file = hooks_dir / "logs" / "diagnostics" / "hook_health.json"
+    if not health_file.exists():
+        return {"status": "unavailable", "failing_count": 0, "failures": []}
+
+    try:
+        payload = json.loads(health_file.read_text(encoding="utf-8"))
+        failures = payload.get("failures", [])
+        if not isinstance(failures, list):
+            failures = []
+        return {
+            "status": str(payload.get("status", "unknown")).lower(),
+            "failing_count": len(failures),
+            "failures": [str(item) for item in failures],
+        }
+    except (json.JSONDecodeError, OSError):
+        return {"status": "unavailable", "failing_count": 0, "failures": []}
+
+
+def _summarize_router_runtime_errors(hooks_dir: Path, days: int) -> dict:
+    """Summarize HOOK_RUNTIME_ERROR and HOOK_NON_JSON_OUTPUT events."""
+    decisions_dir = hooks_dir / "session_data"
+    if not decisions_dir.exists():
+        return {"total": 0, "runtime_error": 0, "non_json_output": 0, "by_hook": []}
+
+    cutoff = datetime.now() - timedelta(days=days)
+    runtime_error = 0
+    non_json_output = 0
+    by_hook: Counter[str] = Counter()
+
+    for file_path in sorted(decisions_dir.glob("hook_decisions_*.jsonl")):
+        try:
+            with open(file_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    ts = entry.get("timestamp")
+                    if not ts:
+                        continue
+                    try:
+                        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+                        if dt.tzinfo is not None:
+                            dt = dt.astimezone().replace(tzinfo=None)
+                        if dt < cutoff:
+                            continue
+                    except ValueError:
+                        continue
+
+                    reason = str(entry.get("reason", ""))
+                    hook_name = str(entry.get("hook_name", "unknown"))
+                    matched = False
+                    if "HOOK_RUNTIME_ERROR" in reason:
+                        runtime_error += 1
+                        matched = True
+                    if "HOOK_NON_JSON_OUTPUT" in reason:
+                        non_json_output += 1
+                        matched = True
+                    if matched:
+                        by_hook[hook_name] += 1
+        except OSError:
+            continue
+
+    return {
+        "total": runtime_error + non_json_output,
+        "runtime_error": runtime_error,
+        "non_json_output": non_json_output,
+        "by_hook": by_hook.most_common(5),
+    }
+
+
 def run_cve_remediation_check() -> CheckResult:
     """Run pip-audit --fix --dry-run to show CVE remediation options.
 
@@ -783,7 +860,7 @@ def run_hook_syntax_check() -> CheckResult:
 
 
 def run_hook_stats_check() -> CheckResult:
-    """Summarize hook diagnostics DB activity and remind users to inspect stats."""
+    """Summarize hook diagnostics activity with health and runtime context."""
     start = time.time()
     hooks_dir = CLAUDE_DIR / "hooks"
     diag_db = hooks_dir / "logs" / "diagnostics" / "diagnostics.db"
@@ -792,7 +869,7 @@ def run_hook_stats_check() -> CheckResult:
         return CheckResult(
             name="hook_stats",
             status="healthy",
-            message="Hook stats: no diagnostics DB yet. Run /hook-audit stats when hooks start logging.",
+            message="Hook stats: no diagnostics DB yet. Run /hook-obs stats when hooks start logging.",
             duration_ms=int((time.time() - start) * 1000),
         )
 
@@ -800,30 +877,69 @@ def run_hook_stats_check() -> CheckResult:
         if str(hooks_dir) not in sys.path:
             sys.path.insert(0, str(hooks_dir))
         from cc_diagnostic_logger import query_hook_invocations
-
-        rows = query_hook_invocations(days=7, limit=50)
+        rows = query_hook_invocations(days=7, limit=200)
         duration_ms = int((time.time() - start) * 1000)
-
-        if not rows:
-            return CheckResult(
-                name="hook_stats",
-                status="healthy",
-                message="Hook stats: no recent hook events. Run /hook-audit stats to inspect the DB.",
-                duration_ms=duration_ms,
-            )
 
         total = len(rows)
         blocks = sum(1 for row in rows if row.get("action") == "block")
         injects = sum(1 for row in rows if row.get("action") == "inject")
+        warns = sum(1 for row in rows if row.get("action") == "warn")
+        passes = sum(1 for row in rows if row.get("action") == "pass")
         turns = len({row.get("turn_id") for row in rows if row.get("turn_id")})
+        top_blockers = Counter(
+            row.get("hook_name", "unknown")
+            for row in rows
+            if row.get("action") == "block"
+        )
+        top_injectors = Counter(
+            row.get("hook_name", "unknown")
+            for row in rows
+            if row.get("action") == "inject"
+        )
+
+        health_summary = _summarize_hook_health(hooks_dir)
+        runtime_summary = _summarize_router_runtime_errors(hooks_dir, days=7)
+
+        status = "healthy"
+        if health_summary["status"] == "fail" or runtime_summary["total"] > 0:
+            status = "warning"
+
+        health_label = "pass"
+        if health_summary["status"] == "fail":
+            health_label = f"{health_summary['failing_count']} failing hook(s)"
+        elif health_summary["status"] == "unavailable":
+            health_label = "unavailable"
+
+        message = (
+            f"Hook stats (7d): {total} events "
+            f"({injects} inject/{blocks} block/{warns} warn/{passes} pass), "
+            f"{turns} turns; health: {health_label}; "
+            f"validator errors: {runtime_summary['total']}."
+            " Run /hook-obs stats --turn <turn-id> for drill-down."
+        )
+
+        details = []
+        if top_blockers:
+            blockers = ", ".join(f"{name} ({count})" for name, count in top_blockers.most_common(3))
+            details.append(f"• Top blockers: {blockers}")
+        if top_injectors:
+            injectors = ", ".join(f"{name} ({count})" for name, count in top_injectors.most_common(3))
+            details.append(f"• Top injectors: {injectors}")
+        if health_summary["status"] == "fail" and health_summary["failures"]:
+            details.append(
+                "⚠️ Failing hooks: "
+                + ", ".join(health_summary["failures"][:3])
+            )
+        if runtime_summary["by_hook"]:
+            hotspots = ", ".join(f"{name} ({count})" for name, count in runtime_summary["by_hook"][:3])
+            details.append(f"⚠️ Validator error hotspots: {hotspots}")
+        details.append("• Use /hook-obs health for full hook health details")
 
         return CheckResult(
             name="hook_stats",
-            status="healthy",
-            message=(
-                f"Hook stats: {total} events, {injects} injects, {blocks} blocks, "
-                f"{turns} turns in the last 7 days. Run /hook-audit stats for turn-scoped detail."
-            ),
+            status=status,
+            message=message,
+            details=details,
             duration_ms=duration_ms,
         )
     except Exception as e:
@@ -831,7 +947,7 @@ def run_hook_stats_check() -> CheckResult:
             name="hook_stats",
             status="warning",
             message=f"Hook stats unavailable: {e}",
-            details=["Run /hook-audit stats"],
+            details=["• Run /hook-obs stats"],
             duration_ms=int((time.time() - start) * 1000),
         )
 

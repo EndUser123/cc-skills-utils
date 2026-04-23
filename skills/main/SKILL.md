@@ -147,7 +147,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 
 **CLAUDE.md Health:** Run `/claude-md-management:claude-md-improver` if it has not been used in more than 5 days. Audits all CLAUDE.md files in the repo, scores them against a quality rubric, and proposes targeted improvements. Run after any significant project structure changes or before major development pushes.
 
-**Hook Audit:** Run `/hook-obs` monthly to monitor LLM compliance with hook injections and blocking effectiveness. Use `--blocks`, `--heatmap`, and `--compliance` for behavioral compliance. The `/main` health checks cover hook performance (timeout rates, latency, log bloat); `/hook-obs` covers behavioral compliance — whether injected instructions are followed and whether enforcement is working as intended. (Formerly `/hook-audit`, merged into `/hook-obs`.)
+**Hook Observability:** Run `/hook-obs` monthly to monitor hook performance and behavioral compliance. Use `stats`, `health`, `blocks`, and `escalation` for focused diagnostics. The `/main` health checks provide a compact infrastructure snapshot (timeouts, latency, log bloat); `/hook-obs` provides deep event-level diagnostics and compliance trends. (Legacy alias: `/hook-audit`.)
 
 **Session Insights:** Run `/insights` monthly to analyze Claude Code session patterns and identify usage trends. Provides visibility into how the system is being used and where workflow improvements may exist.
 

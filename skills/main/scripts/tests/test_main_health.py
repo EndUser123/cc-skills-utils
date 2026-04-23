@@ -72,7 +72,7 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         "",
         "Hook timeout rate 25% (threshold 20%)",
         1,
-        {"/hook-audit"},
+        {"/hook-obs"},
     ),
     # hooks — "syntax" pattern
     (
@@ -80,7 +80,7 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         "hook_file.py: syntax error",
         "",
         1,
-        {"/hook-audit"},
+        {"/hook-obs"},
     ),
     # hooks — "log" pattern
     (
@@ -227,7 +227,7 @@ def test_match_suggestions_no_false_positive_case_mismatch():
     """Pattern matching is case-insensitive for the pattern, not the check name."""
     # Check name must match exactly; pattern is case-insensitive
     result = _match_suggestions("hooks", "", "SYNTAX ERROR DETECTED")
-    assert "/hook-audit" in result, "syntax pattern should be case-insensitive"
+    assert "/hook-obs" in result, "syntax pattern should be case-insensitive"
 
 
 def test_run_hook_stats_check_reports_db_summary(tmp_path, monkeypatch):
@@ -266,6 +266,6 @@ def test_run_hook_stats_check_reports_db_summary(tmp_path, monkeypatch):
 
     assert result.name == "hook_stats"
     assert result.status == "healthy"
-    assert "Hook stats:" in result.message
+    assert "Hook stats" in result.message
     assert "2 events" in result.message
-    assert "/hook-audit stats" in result.message
+    assert "/hook-obs stats" in result.message

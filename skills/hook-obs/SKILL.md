@@ -32,8 +32,8 @@ Query hook performance, traces, and system health from SQLite events database.
 
 ### Technical Context
 - SQLite events database as data source
-- Implementation at `P:/__csf/src/features/commands/observability.py`
-- Multiple report types: health, blocks, latency, waterfall, regression
+- Implementation at `P:/.claude/hooks/hook_audit_dashboard.py`
+- Multiple report types: stats, health, blocks, escalation, replay, and focused diagnostics
 
 ### Architecture Alignment
 - Integrates with /health-monitor for system checks
@@ -41,7 +41,7 @@ Query hook performance, traces, and system health from SQLite events database.
 
 ## Your Workflow
 
-1. Parse report type from command flags
+1. Parse report type from subcommand and optional filters
 2. Execute appropriate query against events database
 3. Format results for display (tables, histograms, waterfalls)
 4. Return actionable insights from data
@@ -55,42 +55,41 @@ Query hook performance, traces, and system health from SQLite events database.
 ## Usage
 
 ```bash
-python P:/__csf/src/features/commands/observability.py [OPTIONS]
+python P:/.claude/hooks/hook_audit_dashboard.py [subcommand] [--days N] [--terminal] [--all] [--turn TURN_ID]
 ```
 
 ## Reports
 
-| Report | Option | Description |
-|--------|--------|-------------|
-| Overview | (none) | Total events, traces, sessions, time range |
-| Hook Health Matrix | `--health` | Success/block/error rates, P95 latency, trends |
-| Block Analysis | `--blocks [hook]` | Root cause of blocks, trigger patterns |
-| Latency Distribution | `--dist [hook]` | Visual histogram with percentiles |
-| Trace Waterfall | `--waterfall <id>` | Nested execution flow visualization |
-| Regression Detection | `--regression` | Performance degradation detection |
-| Article Compliance Heatmap | `--heatmap` | Compliance rate by article with trends |
-| Session Failure Analysis | `--failures` | Failed sessions with reasons |
-| Hook Performance | `-p, --performance` | P50/P95/P99 latencies |
-| Slow Hooks | `--slow MS` | Hooks slower than MS milliseconds |
-| Recent Traces | `-t, --traces` | Recent traces list |
-| Trace Detail | `-t <trace_id>` | Detailed trace waterfall |
-| Compliance Stats | `-c, --compliance` | Block statistics by hook |
+| Report | Command | Description |
+|--------|---------|-------------|
+| Overview | `/hook-obs` | Full dashboard across major diagnostics sections |
+| Hook DB Stats | `/hook-obs stats` | Event mix, top hooks, recent events, turn lookup tip |
+| Hook Health | `/hook-obs health` | Hook health summary + validator runtime error signals |
+| Block Analysis | `/hook-obs blocks` | Blocking events and likely root causes |
+| Assumption Audit | `/hook-obs assumptions` | Assumption-audit compliance telemetry |
+| Error Attribution | `/hook-obs attribution` | Attribution compliance checks |
+| Speculation Gate | `/hook-obs speculation` | Speculation gate metrics |
+| Reasoning Profiles | `/hook-obs reasoning` | THINK auto-routing and reasoning profile signals |
+| Principle Monitoring | `/hook-obs principles` | Principle events (context reuse, grounded changes, etc.) |
+| FrameGuard | `/hook-obs frameguard` | Systemic frame compliance from evidence DB |
+| Escalation Guidance | `/hook-obs escalation` | Phase escalation recommendations |
+| Replay Metrics | `/hook-obs replay` | Enforcement replay quality |
 
 ## Examples
 
 ```bash
-/hook-obs                                    # Overview
-/hook-obs --health                           # Hook health matrix
-/hook-obs --blocks                           # Block analysis for all hooks
-/hook-obs --blocks truth_validator            # Block analysis for specific hook
-/hook-obs --dist                             # Latency distribution
-/hook-obs --dist pre_tool_use                # Latency for specific hook
-/hook-obs --waterfall 1a2b3c4d               # Trace waterfall
-/hook-obs --regression                       # Regression detection
-/hook-obs --heatmap                          # Article compliance heatmap
-/hook-obs --failures                         # Session failures
-/hook-obs -p --sort p95                      # Hook performance sorted by P95
-/hook-obs --slow 200                         # Slow hooks over 200ms
+/hook-obs                                   # Full dashboard
+/hook-obs stats                             # DB event summary
+/hook-obs stats --turn <turn-id>            # Turn-scoped drill-down
+/hook-obs health                            # Hook health + runtime validator errors
+/hook-obs blocks                            # Blocking event analysis
+/hook-obs assumptions                       # Assumption-audit compliance
+/hook-obs attribution                       # Error attribution compliance
+/hook-obs speculation                       # Speculation-gate telemetry
+/hook-obs reasoning                         # Reasoning profile signals
+/hook-obs principles                        # Principle-event overview
+/hook-obs escalation                        # Escalation recommendations
+/hook-obs replay                            # Replay quality metrics
 
 # Note: /obs is a backward-compatible alias
 ```
@@ -99,14 +98,13 @@ python P:/__csf/src/features/commands/observability.py [OPTIONS]
 
 | Question | Use |
 |----------|-----|
-| Which hooks are unhealthy? | `/hook-obs --health` |
-| Why is this hook blocking? | `/hook-obs --blocks <hook>` |
-| Is latency consistent? | `/hook-obs --dist <hook>` |
-| What's the execution flow? | `/hook-obs -t <trace_id>` |
-| Did performance degrade? | `/hook-obs --regression` |
-| Which articles are problematic? | `/hook-obs --heatmap` |
-| Which sessions failed? | `/hook-obs --failures` |
-| Which hooks are slowest? | `/hook-obs -p --sort p95` |
+| Which hooks are unhealthy? | `/hook-obs health` |
+| What is the current hook event mix? | `/hook-obs stats` |
+| Why is this turn blocked? | `/hook-obs stats --turn <turn-id>` |
+| Why are hooks blocking overall? | `/hook-obs blocks` |
+| Are principle violations increasing? | `/hook-obs principles` |
+| Should any guardrails escalate? | `/hook-obs escalation` |
+| Is replay quality degrading? | `/hook-obs replay` |
 | How is competence trending? | `python P:/.claude/skills/_tools/competence_health_check.py` |
 
 ## Future Features
