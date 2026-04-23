@@ -262,6 +262,22 @@ def is_nested_repo(repo: RepoInfo, all_repos: List[RepoInfo]) -> bool:
     if "packages/.mcp/" in normalized_path:
         return True
 
+    # Check if this repo's .git dir is physically inside MAIN_ROOT (P:).
+    # If so, it's nested inside the main worktree — unless it's a legitimate
+    # package repo (packages/*) which we handle separately above.
+    # This catches accidental nested repos like backups/, staging/, etc.
+    try:
+        repo.git_dir.relative_to(MAIN_ROOT)
+        # .git is inside P: — nested unless it's packages/* (handled above)
+        # Normalize again after relative_to to be safe
+        if normalized_path.startswith("packages/"):
+            return False  # legitimate package
+        if normalized_path.startswith(".claude/"):
+            return False  # already handled above, defensive
+        return True  # nested inside main worktree but not a recognized location
+    except ValueError:
+        pass  # .git is outside MAIN_ROOT — not nested inside main worktree
+
     # Check if this repo is inside another package repo's working tree
     # For example: packages/gitready/skills/gitready is inside packages/gitready
     for other in all_repos:
@@ -281,8 +297,12 @@ def is_nested_repo(repo: RepoInfo, all_repos: List[RepoInfo]) -> bool:
 
     return False
 
-def find_all_git_repos() -> List[RepoInfo]:
-    """Find all git repos under P:/"""
+def find_all_git_repos() -> Tuple[List[RepoInfo], List[RepoInfo]]:
+    """Find all git repos under P:/.
+
+    Returns (non_nested, nested) where nested repos are those detected but
+    excluded from sync because they are inside the main worktree.
+    """
     repos = []
     seen_git_dirs = set()
 
@@ -344,13 +364,14 @@ def find_all_git_repos() -> List[RepoInfo]:
     # Filter out nested repos (repos inside other repos' working trees)
     # This catches unintended nested .git folders like .claude/hooks/.git
     non_nested_repos = []
+    nested_repos = []
     for repo in repos:
         if is_nested_repo(repo, repos):
-            # Skip this nested repo - it's inside another repo
+            nested_repos.append(repo)
             continue
         non_nested_repos.append(repo)
 
-    return non_nested_repos
+    return non_nested_repos, nested_repos
 
 def filter_repos(repos: List[RepoInfo], filter_type: str) -> List[RepoInfo]:
     """Filter repos by type"""
@@ -771,6 +792,10 @@ def resolve_conflicts(repo: Path, conflicts: List[str]) -> Tuple[int, int, List[
 
     return resolved, manual, unresolved
 
+# Module-level sync state for cross-phase reporting
+_sync_results: dict[str, dict] = {}  # repo_name -> {did_commit, is_nested}
+_nested_repos_detected: list[RepoInfo] = []  # repos detected but skipped as nested
+
 def ensure_diff3_config() -> None:
     """Ensure git is configured for three-way merge conflicts."""
     result = run(["git", "config", "merge.conflictstyle"], silent=True)
@@ -787,12 +812,14 @@ def ensure_diff3_config() -> None:
 # SYNC FUNCTIONS
 # ============================================================
 
-def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> bool:
+def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]:
     """
     Sync a single repo: commit if needed, optionally push.
-    Returns True if sync succeeded.
+    Returns (sync_ok, did_commit).
     """
     worktree = repo.path
+
+    did_commit = False
 
     # Check for unstaged or untracked changes (not just any output from status --short)
     if _has_uncommitted_worktree_changes(repo):
@@ -801,9 +828,11 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> bool:
         # Generate scoped commit message
         commit_msg = generate_commit_message_for_repo(repo)
 
-        run([
+        commit_result = run([
             "git", "commit", "-m", commit_msg
         ], cwd=worktree, silent=not VERBOSE)
+
+        did_commit = commit_result.returncode == 0
 
         if VERBOSE:
             print(f"  Committed: {commit_msg}")
@@ -816,7 +845,8 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> bool:
         else:
             item(f"Push to origin", "warning", msg)
 
-    return True
+    _sync_results[repo.name] = {"did_commit": did_commit}
+    return True, did_commit
 
 
 def _has_uncommitted_worktree_changes(repo: RepoInfo) -> bool:
@@ -879,7 +909,7 @@ if WORKTREE_MODE:
 # PHASE 1: MULTI-REPO DISCOVERY
 # ============================================================
 
-all_repos = find_all_git_repos()
+all_repos, nested_repos = find_all_git_repos()
 non_main_repos = [r for r in all_repos if r.repo_type != RepoType.MAIN]
 main_repo = next((r for r in all_repos if r.repo_type == RepoType.MAIN), None)
 
@@ -887,6 +917,12 @@ if VERBOSE:
     print(f"Discovered {len(all_repos)} git repos:")
     for repo in all_repos:
         print(f"  [{repo.repo_type}] {repo.relative_path}")
+
+# Report nested repos that were filtered out
+if nested_repos:
+    print(f"\n{color('⚠ NESTED REPOS DETECTED (skipped):', 'warning')}")
+    for repo in nested_repos:
+        print(f"  ~ {repo.relative_path} — nested inside main worktree, not synced independently")
 
 # ============================================================
 # PHASE 2: HEALTH CHECK (always shown)
@@ -1040,13 +1076,36 @@ if main_repo:
 # PHASE 8: POST-SYNC CLEANLINESS CHECK
 # ============================================================
 
+def _get_dirty_description(repo: RepoInfo) -> str:
+    """Describe what kind of dirty state remains in a repo."""
+    status = run(["git", "status", "--porcelain"], cwd=repo.path, silent=True)
+    if status.returncode != 0:
+        return "dirty (unknown)"
+
+    lines = [l for l in status.stdout.splitlines() if l.strip()]
+    untracked = sum(1 for l in lines if l.startswith("??"))
+    col2_changes = sum(1 for l in lines if not l.startswith("??") and l[1:2] != " ")
+
+    if col2_changes > 0 and untracked > 0:
+        return f"unstaged modifications ({col2_changes}) + untracked files ({untracked})"
+    elif col2_changes > 0:
+        return f"unstaged modifications ({col2_changes})"
+    elif untracked > 0:
+        return f"untracked files only ({untracked}) — staged content was committed"
+    else:
+        return "dirty (unknown)"
+
+
 remaining_dirty = [repo for repo in all_repos if repo_has_worktree_changes(repo)]
 if remaining_dirty:
+    dirty_lines = []
+    for repo in remaining_dirty:
+        desc = _get_dirty_description(repo)
+        dirty_lines.append(f"    - {repo.relative_path}: {desc}")
     issues.append((
         "dirty",
         None,
-        "Uncommitted changes remain after sync:\n"
-        + "\n".join(f"    - {repo.relative_path}" for repo in remaining_dirty)
+        "Changes remain after sync:\n" + "\n".join(dirty_lines)
     ))
 
 # ============================================================

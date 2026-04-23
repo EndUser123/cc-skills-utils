@@ -1038,15 +1038,15 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                     )
                     continue
 
-                # Load policy to get required_directories
+                # Load policy to get allowed_root_patterns
                 try:
                     policy_path = root / ".claude" / "hooks" / "config" / "directory_policy.json"
                     if policy_path.exists():
                         policy = json.loads(policy_path.read_text(encoding="utf-8"))
-                        required_dirs = policy.get("workspace_root", {}).get(
-                            "required_directories", []
+                        allowed_patterns = policy.get("workspace_root", {}).get(
+                            "allowed_root_patterns", []
                         )
-                        allowed_root_dirs = {d.get("path", d) for d in required_dirs}
+                        allowed_root_dirs = {d.get("pattern", d) for d in allowed_patterns}
 
                         # Check if this directory is in the allowed list
                         if item.name not in allowed_root_dirs:
@@ -1745,8 +1745,13 @@ def generate_recommended_actions(domain: str, violations: list[dict]) -> list[st
         actions.append("Move test code (*.py) to __csf\\tests\\ or alongside source")
 
     elif domain == "Project Roots":
-        # Automatic inspection of each directory
-        paths = [v["path"] for v in violations]
+        # Special case: Users directory is always deleted (user home artifact, never valid in workspace)
+        users_dirs = [v for v in violations if "Users" in v.get("path", "")]
+        if users_dirs:
+            actions.append("🗑️ DELETE (user home artifact): Users - user home directories do not belong in workspace root")
+
+        # Automatic inspection of each remaining directory
+        paths = [v["path"] for v in violations if "Users" not in v.get("path", "")]
 
         # Group by status after inspection
         active_dirs = []
