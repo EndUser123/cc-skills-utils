@@ -1025,6 +1025,19 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                 if item.name in WINDOWS_SYSTEM_FOLDERS:
                     continue
 
+                # Skip user home directory artifacts that should never be in workspace root
+                if item.name == "Users":
+                    violations.append(
+                        {
+                            "type": "UNAUTHORIZED_ROOT_DIRECTORY",
+                            "rule": "UNAUTHORIZED_ROOT_DIRECTORY",
+                            "path": str(item),
+                            "message": "Directory 'Users' at workspace root is a user home artifact - should never be in P:/",
+                            "suggestion": "Delete - user home directories do not belong in workspace root",
+                        }
+                    )
+                    continue
+
                 # Load policy to get required_directories
                 try:
                     policy_path = root / ".claude" / "hooks" / "config" / "directory_policy.json"
