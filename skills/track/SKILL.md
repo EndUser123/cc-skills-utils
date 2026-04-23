@@ -75,10 +75,46 @@ Alias for `/track done` — mark current thread as complete.
 }
 ```
 
+## Session Registry Integration
+
+The session registry (`P:/.claude/.artifacts/session_registry.jsonl`) provides cross-terminal session history from PreCompact captures.
+
+### `/track sessions`
+Show recent compaction history across all terminals:
+
+```bash
+python -c "
+import json
+from pathlib import Path
+registry = Path('P:/.claude/.artifacts/session_registry.jsonl')
+if not registry.exists():
+    print('No session registry found.')
+    sys.exit(0)
+entries = []
+for line in registry.read_text(encoding='utf-8').splitlines():
+    try:
+        entries.append(json.loads(line))
+    except json.JSONDecodeError:
+        pass
+for e in entries[-20:]:
+    ts = e.get('ts','?')[:19].replace('T',' ')
+    tid = e.get('terminal_id','?')[-8:]
+    goal = e.get('goal','')[:50]
+    pct = e.get('progress_percent', '?')
+    print(f'{ts}  [{tid}]  {goal}  ({pct}%)')
+"
+```
+
+Entries are appended on each compaction. `handoff_path` is a hint (file may have been cleaned up by retention policy). Always check file existence before reading.
+
+### `/track sessions --terminal <id>`
+Filter to a specific terminal. The terminal_id is `console_{WT_SESSION}`.
+
 ## Reconstruction Logic (when no thread is active)
 
 1. Read `~/.claude/terminals/<terminal-id>.json` from `/term` skill (this terminal only)
-2. If nothing found, prompt user to start a thread with `/track "working on..."`
+2. If nothing found, check session registry for this terminal's last entry
+3. If still nothing, prompt user to start a thread with `/track "working on..."`
 
 ## Multi-Terminal Isolation
 

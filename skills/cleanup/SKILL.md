@@ -154,6 +154,7 @@ python P:\.claude\skills\cleanup\scripts\cleanup.py --yes
 4. **If source analysis finds nothing but violations remain**: Manually investigate each remaining violation:
    - List contents of the flagged path (`ls`, `Glob`)
    - Determine if it's stale debris (empty/obsolete → delete) or intentional (should be added to policy)
+   - **Investigate BEFORE adding to policy**: verify the file serves no purpose before declaring it junk
    - Do NOT skip to Phase 2 without making a determination
 5. Re-run `/cleanup` after resolving each violation
 

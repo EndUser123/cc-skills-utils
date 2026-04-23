@@ -89,18 +89,23 @@ python P:/.claude/skills/git/sync.py [args]
 
 ## Prerequisites
 
-Before using `/git`, ensure git is configured for authentication:
+**1. GitHub CLI (`gh`) - REQUIRED for GitHub repo creation**
+- Check: `/c/Program Files/GitHub CLI/gh.exe auth status` — should show "Logged in to github.com"
+- If not installed: https://cli.github.com/manual/installation
+- If not authenticated: `gh auth login`
+- Location on Windows: `C:\Program Files\GitHub CLI\gh.exe`
+- Note: Stored tokens can expire — verify before heavy operations
 
-**1. Authentication** - Set up git credentials for your hosting provider:
+**2. Git authentication**
 - GitHub: https://docs.github.com/en/authentication
 - GitLab: https://docs.gitlab.com/ee/user/profile/preferences.html#access-tokens
 
-**2. Windows users** - Configure credential helper:
+**3. Windows users** - Configure credential helper:
 ```bash
 git config --global credential.helper manager-core
 ```
 
-**3. Test manually first** - Run `git push` once to authenticate before relying on auto-push. This confirms credentials work and prevents silent authentication failures during automated sync.
+**4. Test manually first** - Run `git push` once to authenticate before relying on auto-push. This confirms credentials work and prevents silent authentication failures during automated sync.
 
 **Note**: The skill will show actionable error messages if authentication fails, but first-time setup is easier when done manually.
 
@@ -153,6 +158,22 @@ Push failures show actionable messages:
 - Authentication errors: suggests manual `git push` to authenticate
 - Rejected pushes: suggests pulling first
 - Missing remote: shows which repos have no remote
+
+### Missing Remote Detection
+If push fails with "remote not found" or repo doesn't exist on GitHub:
+1. Detect: Check if `gh api repos/<owner>/<repo>` returns 404
+2. Create: `gh repo create <owner>/<repo> --public` (or `--private` as needed)
+3. Push: Retry git push to the newly created remote
+
+Example workflow for new repos:
+```bash
+# Create GitHub repo and push in one step (if gh is available)
+gh repo create <owner>/<repo> --public --source=. --push
+# Or create first, then set remote and push
+gh repo create <owner>/<repo> --public
+git remote set-url origin https://github.com/<owner>/<repo>.git
+git push -u origin main
+```
 
 ---
 

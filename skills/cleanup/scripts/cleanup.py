@@ -798,6 +798,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
     dotfile_check_list = [".coverage"]  # Default fallback
     dotfile_suggestions = {}  # Store suggestions for each dotfile
     allowed_config_files = []
+    claude_dir_blocked_patterns = []  # Patterns for junk files in .claude/ directory
 
     if policy_path.exists():
         try:
@@ -813,6 +814,10 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                 allowed_config_files = policy_data.get("workspace_root", {}).get(
                     "allowed_config_files", []
                 )
+                # Load blocked patterns for .claude/ directory cleanup
+                claude_dir = policy_data.get("claude_directory", {})
+                blocked_root = claude_dir.get("blocked_root_patterns", {})
+                claude_dir_blocked_patterns = blocked_root.get("patterns", [])
         except (OSError, json.JSONDecodeError, KeyError):
             pass  # Use default fallback
 
@@ -874,6 +879,17 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
         ".cache",
         ".venv",
         "node_modules",
+        ".ruff_cache",
+        ".pytest_cache",
+    }
+
+    # Orphaned dot-directories that should be flagged as violations
+    # These are blocked in directory_policy.json and should not exist at workspace root
+    orphaned_dotdirs = {
+        ".artifacts",
+        ".claude-state",
+        ".evidence",
+        ".remember",
     }
 
     # Placeholder/generic name patterns
@@ -903,8 +919,9 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
             if item.is_dir() and item.name in allowed_dirs:
                 continue
 
-            # Skip hidden files/dirs (except those in dotfile_check_list from policy)
-            if item.name.startswith(".") and item.name not in dotfile_check_list:
+            # Skip hidden files/dirs (except those in dotfile_check_list from policy
+            # and orphaned dotdirs that should be flagged as violations)
+            if item.name.startswith(".") and item.name not in dotfile_check_list and item.name not in orphaned_dotdirs:
                 continue
 
             item_name = item.name.lower()
@@ -923,6 +940,19 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                         "path": str(item),
                         "message": f"Dotfile '{item.name}' at workspace root is not in allowed_config_files",
                         "suggestion": suggestion,
+                    }
+                )
+                continue
+
+            # Check: Orphaned dot-directories (blocked in directory_policy.json)
+            if item.is_dir() and item.name in orphaned_dotdirs:
+                violations.append(
+                    {
+                        "type": "BLOCKED_ROOT_DIRECTORY",
+                        "rule": "ORPHANED_DOTDIR",
+                        "path": str(item),
+                        "message": f"Orphaned dot-directory '{item.name}' — should be deleted (canonical location is .claude/.claude-state/)",
+                        "suggestion": f"Delete P:/{item.name}/ — these directories are now blocked in directory_policy.json",
                     }
                 )
                 continue
@@ -1249,7 +1279,9 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
     return violations
 
 
-def detect_internal_violations(root_path: str = "P:/") -> list[dict]:
+def detect_internal_violations(
+    root_path: str = "P:/", claude_dir_blocked_patterns: list = None, claude_dir_allowed_subdirs: list = None
+) -> list[dict]:
     r"""Detect junk inside authorized directories.
 
     Scans inside authorized directories like .claude/ for junk patterns:
@@ -1268,6 +1300,31 @@ def detect_internal_violations(root_path: str = "P:/") -> list[dict]:
     """
     root = Path(root_path)
     violations = []
+
+    # Check: enforce claude_directory.allowed_subdirectories from policy
+    # Any top-level .claude/ directory not in the policy list is a violation
+    if claude_dir_allowed_subdirs is not None:
+        claude_dir = root / ".claude"
+        if claude_dir.exists() and claude_dir.is_dir():
+            # Build set of allowed top-level directory names from policy
+            allowed_top_level = set()
+            for entry in claude_dir_allowed_subdirs:
+                path = entry.get("path", entry) if isinstance(entry, dict) else entry
+                top_level = path.split("/")[0]  # "hooks/.state" -> "hooks"
+                allowed_top_level.add(top_level)
+
+            for item in claude_dir.iterdir():
+                if item.is_dir() and not item.name.startswith("."):
+                    if item.name not in allowed_top_level:
+                        violations.append(
+                            {
+                                "type": "UNAUTHORIZED_CLAUDE_SUBDIR",
+                                "rule": "CLAUDE_DIRECTORY_ALLOWED_SUBDIRS",
+                                "path": str(item),
+                                "message": f"Directory '{item.name}' in .claude/ is not in allowed_subdirectories policy",
+                                "suggestion": "Delete if not needed, or add to claude_directory.allowed_subdirectories in directory_policy.json",
+                            }
+                        )
 
     # Claude Code v2.1.78 authorized directories (these are created by Claude Code and should NOT be flagged)
     claude_code_authorized_dirs = {
@@ -1309,6 +1366,8 @@ def detect_internal_violations(root_path: str = "P:/") -> list[dict]:
         ".locks",
         ".staging",
         ".venv",
+        ".ruff_cache",
+        ".pytest_cache",
         "claude",
         "cognitive",
         "config",
@@ -1388,6 +1447,23 @@ def detect_internal_violations(root_path: str = "P:/") -> list[dict]:
                 except ValueError:
                     # Can't make relative (different drive), skip
                     continue
+
+                # Check: blocked patterns from directory_policy.json (e.g., nul, hooks", tmpclaude-*-cwd)
+                # Note: special files (nul, hooks") exist but Path.is_file() returns False, so check exists()
+                if claude_dir_blocked_patterns and (item.is_file() or item.exists()):
+                    for blocked in claude_dir_blocked_patterns:
+                        import fnmatch
+                        if fnmatch.fnmatch(item.name, blocked["pattern"]):
+                            violations.append(
+                                {
+                                    "type": "BLOCKED_JUNK_FILE",
+                                    "rule": "POLICY_BLOCKED",
+                                    "path": str(item),
+                                    "message": blocked.get("reason", f"File '{item.name}' is blocked by policy"),
+                                    "suggestion": blocked.get("action", "DELETE").upper() + " if confirmed junk",
+                                }
+                            )
+                            break
 
                 # Skip authorized directories
                 if item.is_dir():
@@ -4045,6 +4121,21 @@ NEW FEATURES:
 
     args = parser.parse_args()
 
+    # Load claude_directory policy once for reuse
+    policy_path = Path("P:/.claude/hooks/config/directory_policy.json")
+    claude_dir_blocked_patterns = []
+    claude_dir_allowed_subdirs = []
+    if policy_path.exists():
+        try:
+            with open(policy_path) as f:
+                policy_data = json.load(f)
+                claude_dir = policy_data.get("claude_directory", {})
+                blocked_root = claude_dir.get("blocked_root_patterns", {})
+                claude_dir_blocked_patterns = blocked_root.get("patterns", [])
+                claude_dir_allowed_subdirs = claude_dir.get("allowed_subdirectories", [])
+        except (OSError, json.JSONDecodeError, KeyError):
+            pass
+
     # JSON mode: output violations only and exit
     if args.json:
         # Run validator (policy-based violations)
@@ -4060,7 +4151,7 @@ NEW FEATURES:
         heuristic_violations = detect_heuristic_violations(args.root)
 
         # Run internal directory violation detection (NEW)
-        internal_violations = detect_internal_violations(args.root)
+        internal_violations = detect_internal_violations(args.root, claude_dir_blocked_patterns, claude_dir_allowed_subdirs)
 
         # Merge all violation types
         all_violations = violations + heuristic_violations + internal_violations
@@ -4100,7 +4191,7 @@ NEW FEATURES:
         # Run all violation detection
         results = run_validator(args.root, args.max)
         heuristic_violations = detect_heuristic_violations(args.root)
-        internal_violations = detect_internal_violations(args.root)
+        internal_violations = detect_internal_violations(args.root, claude_dir_blocked_patterns, claude_dir_allowed_subdirs)
         policy_violations = results.get("violations", [])
         all_violations = policy_violations + heuristic_violations + internal_violations
 
@@ -4151,7 +4242,7 @@ NEW FEATURES:
 
     # Run internal directory violation detection (NEW)
     print("\n🔍 Detecting internal violations (cache dirs, backups, etc.)...")
-    internal_violations = detect_internal_violations(args.root)
+    internal_violations = detect_internal_violations(args.root, claude_dir_blocked_patterns)
 
     # Merge all violation types
     all_violations = violations + heuristic_violations + internal_violations
