@@ -794,14 +794,8 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> bool:
     """
     worktree = repo.path
 
-    # Check for uncommitted changes
-    status = run(
-        "git status --short",
-        cwd=worktree,
-        silent=not VERBOSE,
-    ).stdout.strip()
-
-    if status:
+    # Check for unstaged or untracked changes (not just any output from status --short)
+    if _has_uncommitted_worktree_changes(repo):
         run("git add -A", cwd=worktree, silent=not VERBOSE)
 
         # Generate scoped commit message
@@ -825,14 +819,41 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> bool:
     return True
 
 
-def repo_has_worktree_changes(repo: RepoInfo) -> bool:
-    """Return True when a repo has uncommitted worktree changes."""
+def _has_uncommitted_worktree_changes(repo: RepoInfo) -> bool:
+    """Return True when a repo has unstaged modifications or untracked files.
+
+    Ignores staged changes that are already on origin — only flags new changes
+    that haven't been committed yet. This prevents noise like 'still dirty' after
+    a commit that correctly captured all new changes.
+    """
+    # --porcelain gives stable machine-readable output
     status = run(
-        ["git", "status", "--short"],
+        ["git", "status", "--porcelain"],
         cwd=repo.path,
         silent=True,
     )
-    return status.returncode == 0 and bool(status.stdout.strip())
+    if status.returncode != 0:
+        return False
+
+    for line in status.stdout.splitlines():
+        if not line:
+            continue
+        # Column 1: staged status (space = unstaged modification or untracked)
+        # Column 2: worktree status
+        # Staged changes (column 1 != space) are already tracked — ignore them
+        # Untracked files start with "??"
+        # Unstaged modifications have column 2 != space
+        if line.startswith("??"):
+            return True  # untracked file — new change
+        col2 = line[1:2]
+        if col2 != " ":
+            return True  # unstaged modification — new change
+    return False
+
+
+def repo_has_worktree_changes(repo: RepoInfo) -> bool:
+    """Return True when a repo has uncommitted worktree changes."""
+    return _has_uncommitted_worktree_changes(repo)
 
 # ============================================================
 # PHASE 0: WORKTREE MODE (exits early)

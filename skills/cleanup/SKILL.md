@@ -150,8 +150,12 @@ python P:\.claude\skills\cleanup\scripts\cleanup.py --yes
    - Searches for code generating violations
    - Maps violations to their source files
    - Displays source problems with suggested fixes
-3. **Fix source code first** to prevent recurrence
-4. Re-run `/cleanup` after fixing sources
+3. **If source problems found**: Fix source code first, then re-run `/cleanup`
+4. **If source analysis finds nothing but violations remain**: Manually investigate each remaining violation:
+   - List contents of the flagged path (`ls`, `Glob`)
+   - Determine if it's stale debris (empty/obsolete → delete) or intentional (should be added to policy)
+   - Do NOT skip to Phase 2 without making a determination
+5. Re-run `/cleanup` after resolving each violation
 
 **PHASE 2: File Cleanup**
 5. **Verify**: Review summary and re-validate
