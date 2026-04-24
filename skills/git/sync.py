@@ -938,7 +938,19 @@ def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
         # Stage all changes including submodule contents
         run("git add -A", cwd=repo.path, silent=True)
         # For submodules: init/update so submodule worktree matches index after add
-        run("git submodule update --init", cwd=repo.path, silent=True)
+        submodule_result = run("git submodule update --init", cwd=repo.path, silent=True)
+        if submodule_result.returncode != 0:
+            # Orphaned submodules (registered gitlink but no .gitmodules entry) — remove stale gitlink, re-add as regular content
+            output = submodule_result.stdout + submodule_result.stderr
+            for line in output.splitlines():
+                if "No url found for submodule path" in line:
+                    # Extract path between "path '" and "' in .gitmodules"
+                    start = line.find("path '") + 6
+                    end = line.find("' in .gitmodules")
+                    if start > 5 and end > start:
+                        submodule_path = line[start:end]
+                        run(f"git rm --cached {submodule_path}", cwd=repo.path, silent=True)
+                        run(f"git add {submodule_path}", cwd=repo.path, silent=True)
         commit_msg = generate_commit_message_for_repo(repo)
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=repo.path, silent=True)
         if commit_result.returncode == 0 and VERBOSE:
