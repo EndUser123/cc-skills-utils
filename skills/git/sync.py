@@ -951,6 +951,8 @@ def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
                         submodule_path = line[start:end]
                         run(f"git rm --cached {submodule_path}", cwd=repo.path, silent=True)
                         run(f"git add {submodule_path}", cwd=repo.path, silent=True)
+        # Re-add to catch any new files created by submodule update (timing issue: files created after first add)
+        run("git add -A", cwd=repo.path, silent=True)
         commit_msg = generate_commit_message_for_repo(repo)
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=repo.path, silent=True)
         if commit_result.returncode == 0 and VERBOSE:
