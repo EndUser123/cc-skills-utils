@@ -23,6 +23,7 @@ import argparse
 import re
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict, NamedTuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import shared git guard config to prevent config divergence
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "hooks"))
@@ -928,9 +929,8 @@ if nested_repos:
 # PHASE 2: HEALTH CHECK (always shown)
 # ============================================================
 
-header("GIT REPOS HEALTH")
-
-for repo in all_repos:
+def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
+    """Worker function for parallel health check. Returns (relative_path, status, detail)."""
     has_remote, commits_ahead, commits_behind = get_repo_status(repo)
     is_dirty = repo_has_worktree_changes(repo)
     detail_parts = []
@@ -954,7 +954,16 @@ for repo in all_repos:
     if is_dirty and status == "ok":
         status = "warning"
     detail = ", ".join(detail_parts)
-    item(repo.relative_path, status, detail)
+    return (repo.relative_path, status, detail)
+
+header("GIT REPOS HEALTH")
+
+# Parallel health check — each repo's status and dirty check run concurrently
+with ThreadPoolExecutor(max_workers=8) as executor:
+    future_to_repo = {executor.submit(_check_repo_health, repo): repo for repo in all_repos}
+    for future in as_completed(future_to_repo):
+        rel_path, status, detail = future.result()
+        item(rel_path, status, detail)
 
 # Worktree listing
 result = run(["git", "worktree", "list"], cwd=MAIN_ROOT, silent=True)

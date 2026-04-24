@@ -62,6 +62,33 @@ ls -la "$(python -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['c
 | Captured | {captured_at} |
 ```
 
+6. Show session history from the session registry (last 5 entries for this terminal):
+
+```bash
+python -c "
+import json, sys
+registry = Path('P:/.claude/.artifacts/session_registry.jsonl')
+tid = f'console_{os.environ.get(\"WT_SESSION\",\"\")}'
+if not registry.exists():
+    sys.exit(0)
+entries = []
+for line in registry.read_text(encoding='utf-8').splitlines():
+    try:
+        e = json.loads(line)
+        if e.get('terminal_id') == tid:
+            entries.append(e)
+    except json.JSONDecodeError:
+        pass
+for e in entries[-5:]:
+    ts = e.get('ts','?')[:19].replace('T',' ')
+    goal = e.get('goal','')[:60]
+    pct = e.get('progress_percent', '?')
+    print(f'  {ts}  {goal}  ({pct}%)')
+"
+```
+
+If registry is empty or missing, omit the history section silently.
+
 ## Failure modes
 
 If any step fails:
