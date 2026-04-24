@@ -949,6 +949,12 @@ def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
                     end = line.find("' in .gitmodules")
                     if start > 5 and end > start:
                         submodule_path = line[start:end]
+                        submodule_full = os.path.join(repo.path, submodule_path)
+                        # Distinguish nested repo from orphaned gitlink:
+                        # - Has .git directory inside = nested repo, leave it alone
+                        # - No .git directory = orphaned gitlink, clean it up
+                        if os.path.isdir(os.path.join(submodule_full, '.git')):
+                            continue  # real nested repo, skip
                         run(f"git rm --cached {submodule_path}", cwd=repo.path, silent=True)
                         run(f"git add {submodule_path}", cwd=repo.path, silent=True)
         # Re-add to catch any new files created by submodule update (timing issue: files created after first add)
