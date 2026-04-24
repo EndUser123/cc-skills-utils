@@ -66,20 +66,13 @@ ls -la "$(python -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['c
 
 ```bash
 python -c "
-import json, sys
-registry = Path('P:/.claude/.artifacts/session_registry.jsonl')
-tid = f'console_{os.environ.get(\"WT_SESSION\",\"\")}'
-if not registry.exists():
+import sys; sys.path.insert(0, 'P:/packages/handoff')
+from scripts.hooks.__lib.session_registry import query_registry
+tid = f'console_{__import__(\"os\").environ.get(\"WT_SESSION\",\"\")}'
+entries = query_registry(terminal_id=tid, limit=5)
+if not entries:
     sys.exit(0)
-entries = []
-for line in registry.read_text(encoding='utf-8').splitlines():
-    try:
-        e = json.loads(line)
-        if e.get('terminal_id') == tid:
-            entries.append(e)
-    except json.JSONDecodeError:
-        pass
-for e in entries[-5:]:
+for e in entries:
     ts = e.get('ts','?')[:19].replace('T',' ')
     goal = e.get('goal','')[:60]
     pct = e.get('progress_percent', '?')
