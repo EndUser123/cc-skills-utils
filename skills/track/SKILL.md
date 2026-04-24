@@ -84,19 +84,12 @@ Show recent compaction history across all terminals:
 
 ```bash
 python -c "
-import json
-from pathlib import Path
-registry = Path('P:/.claude/.artifacts/session_registry.jsonl')
-if not registry.exists():
-    print('No session registry found.')
+import sys; sys.path.insert(0, 'P:/packages/handoff')
+from scripts.hooks.__lib.session_registry import query_registry
+entries = query_registry(limit=20)
+if not entries:
     sys.exit(0)
-entries = []
-for line in registry.read_text(encoding='utf-8').splitlines():
-    try:
-        entries.append(json.loads(line))
-    except json.JSONDecodeError:
-        pass
-for e in entries[-20:]:
+for e in entries:
     ts = e.get('ts','?')[:19].replace('T',' ')
     tid = e.get('terminal_id','?')[-8:]
     goal = e.get('goal','')[:50]
@@ -108,12 +101,28 @@ for e in entries[-20:]:
 Entries are appended on each compaction. `handoff_path` is a hint (file may have been cleaned up by retention policy). Always check file existence before reading.
 
 ### `/track sessions --terminal <id>`
-Filter to a specific terminal. The terminal_id is `console_{WT_SESSION}`.
+Filter to a specific terminal. Pass `terminal_id` to `query_registry()`:
+
+```bash
+python -c "
+import sys, os; sys.path.insert(0, 'P:/packages/handoff')
+from scripts.hooks.__lib.session_registry import query_registry
+tid = sys.argv[1] if len(sys.argv) > 1 else f'console_{os.environ.get(\"WT_SESSION\",\"\")}'
+entries = query_registry(terminal_id=tid, limit=20)
+if not entries:
+    sys.exit(0)
+for e in entries:
+    ts = e.get('ts','?')[:19].replace('T',' ')
+    goal = e.get('goal','')[:50]
+    pct = e.get('progress_percent', '?')
+    print(f'{ts}  {goal}  ({pct}%)')
+" "<terminal_id>"
+```
 
 ## Reconstruction Logic (when no thread is active)
 
 1. Read `~/.claude/terminals/<terminal-id>.json` from `/term` skill (this terminal only)
-2. If nothing found, check session registry for this terminal's last entry
+2. If nothing found, query session registry via `query_registry(terminal_id=tid, limit=1)` for this terminal's last entry
 3. If still nothing, prompt user to start a thread with `/track "working on..."`
 
 ## Multi-Terminal Isolation
