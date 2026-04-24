@@ -551,6 +551,8 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
         # Provide actionable error messages
         if "authentication" in error.lower() or "credential" in error.lower():
             action = f"Run 'git push' manually in {repo.path} to authenticate"
+        elif "gh001" in error.lower() or "large files detected" in error.lower() or ("file" in error.lower() and "exceeds" in error.lower() and "limit" in error.lower()):
+            action = f"Large file exceeds GitHub's 100MB limit. Use Git LFS or remove file from history (BFG/filter-branch) in {repo.path}"
         elif "rejected" in error.lower():
             action = f"Push rejected - remote has commits that local doesn't. Pull first in {repo.path}"
         elif "not found" in error.lower():
@@ -930,9 +932,17 @@ if nested_repos:
 # ============================================================
 
 def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
-    """Worker function for parallel health check. Returns (relative_path, status, detail)."""
+    """Worker function for parallel health check. Auto-commits dirty files first so status reflects post-clean state. Returns (relative_path, status, detail)."""
+    # Auto-commit dirty files before checking status — health check shows truthful post-commit state
+    if _has_uncommitted_worktree_changes(repo):
+        run("git add -A", cwd=repo.path, silent=True)
+        commit_msg = generate_commit_message_for_repo(repo)
+        commit_result = run(["git", "commit", "-m", commit_msg], cwd=repo.path, silent=True)
+        if commit_result.returncode == 0 and VERBOSE:
+            print(f"  [pre-sync commit] {repo.relative_path}: {commit_msg.split(chr(10))[0]}")
+
     has_remote, commits_ahead, commits_behind = get_repo_status(repo)
-    is_dirty = repo_has_worktree_changes(repo)
+    is_dirty = repo_has_worktree_changes(repo)  # Re-check after potential commit
     detail_parts = []
     if is_dirty:
         detail_parts.append("dirty")
