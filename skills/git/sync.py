@@ -935,7 +935,10 @@ def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
     """Worker function for parallel health check. Auto-commits dirty files first so status reflects post-clean state. Returns (relative_path, status, detail)."""
     # Auto-commit dirty files before checking status — health check shows truthful post-commit state
     if _has_uncommitted_worktree_changes(repo):
+        # Stage all changes including submodule contents
         run("git add -A", cwd=repo.path, silent=True)
+        # For submodules: init/update so submodule worktree matches index after add
+        run("git submodule update --init", cwd=repo.path, silent=True)
         commit_msg = generate_commit_message_for_repo(repo)
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=repo.path, silent=True)
         if commit_result.returncode == 0 and VERBOSE:
