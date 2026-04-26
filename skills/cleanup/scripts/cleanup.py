@@ -56,7 +56,7 @@ from pathlib import Path
 lib_path = Path(__file__).parent.parent.parent.parent / "hooks" / "__lib"
 sys.path.insert(0, str(lib_path))
 try:
-    from location_optimizer import infer_optimal_location
+    from location_optimizer import infer_optimal_location, trace_file_references
     from type_validator import check_file_type_violations, validate_config_whitelist_entries
 
     TYPE_VALIDATOR_AVAILABLE = True
@@ -858,6 +858,21 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
             if optimal_reason:
                 violation["optimal_reason"] = optimal_reason
 
+            # Phase 1 enhancement: If infer_optimal_location returns "keep" (unknown type),
+            # use trace_file_references to dynamically determine destination based on
+            # consumer distribution. This prevents moving files to wrong locations.
+            if optimal_location is None and LOCATION_OPTIMIZER_AVAILABLE:
+                try:
+                    ref_result = trace_file_references(error.file_path)
+                    if ref_result.get("status") == "available" and ref_result.get("recommended_path"):
+                        violation["optimal_location"] = ref_result["recommended_path"]
+                        violation["optimal_reason"] = ref_result["reason"]
+                        violation["consumer_count"] = ref_result.get("consumer_count", 0)
+                        violation["dir_breakdown"] = ref_result.get("dir_breakdown", {})
+                        violation["multi_purpose"] = ref_result.get("multi_purpose", False)
+                except Exception:
+                    pass  # Graceful fallback if reference tracing fails
+
             violations.append(violation)
 
     # Allowed directories at root (whitelist)
@@ -1322,7 +1337,7 @@ def detect_internal_violations(
                                 "rule": "CLAUDE_DIRECTORY_ALLOWED_SUBDIRS",
                                 "path": str(item),
                                 "message": f"Directory '{item.name}' in .claude/ is not in allowed_subdirectories policy",
-                                "suggestion": "Delete if not needed, or add to claude_directory.allowed_subdirectories in directory_policy.json",
+                                "suggestion": "DELETE if not needed (policy changes require explicit user approval)",
                             }
                         )
 

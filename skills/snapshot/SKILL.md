@@ -1,32 +1,36 @@
 ---
-name: handoff
+name: snapshot
 version: "1.0.0"
 status: "stable"
-description: Research-backed handover documentation system using handoff package
+description: Session snapshot capture and restore system using snapshot package
 category: documentation
+enforcement: advisory
+workflow_steps:
+  - name: Capture
+    trigger: "/compact (automatic)"
+    description: "PreCompact hook captures session state before compaction"
+  - name: Restore
+    trigger: "/snapshot load"
+    description: "SessionStart hook restores snapshot on new session start"
 triggers:
-  - /handoff
+  - /snapshot
 aliases:
-  - /handoff
-
-suggest:
-  - /restore
-  - /session-handoff
+  - /snapshot
 ---
 
-# Handoff - Enhanced Session Continuity and Handover System
+# Snapshot - Session Snapshot Capture and Restore
 
-Research-backed handover documentation system for seamless LLM session continuity across compacts. **Automatic capture via PreCompact hooks, manual operations available via `python -m scripts.cli`.**
+Session snapshot system for seamless LLM session continuity across compacts. **Automatic capture via PreCompact hooks, manual operations available via `python -m scripts.cli`.**
 
 ## Purpose
 
-Generate comprehensive handover documentation that ensures **100% work continuity** across Claude Code sessions, compacts, and agent transitions.
+Generate session snapshots that ensure **100% work continuity** across Claude Code sessions, compacts, and agent transitions.
 
 ## Architecture
 
 ### Implementation
-- **Package**: `handoff` at `P:/packages/handoff`
-- **Hooks**: PreCompact handoff capture (automatic)
+- **Package**: `snapshot` at `P:/packages/snapshot`
+- **Hooks**: PreCompact snapshot capture (automatic)
 - **Skill**: Claude Code skill integration via `skill/SKILL.md`
 - **Storage**: `P:/.claude/state/task_tracker/`
 
@@ -35,29 +39,29 @@ Generate comprehensive handover documentation that ensures **100% work continuit
 | Feature | Implementation | Trigger |
 |---------|---------------|---------|
 | Automatic capture | PreCompact hook | Before /compact |
-| Handoff storage | JSON files | Automatic |
+| Snapshot storage | JSON files | Automatic |
 | Quality scoring | Built-in algorithm | Automatic |
 
-**No manual CLI needed** - handoff capture is fully automated.
+**No manual CLI needed** - snapshot capture is fully automated.
 
 ## Your Workflow
 
-Before compact/handover:
-1. `/handoff detailed` - Document current work
+Before compact:
+1. `/snapshot detailed` - Document current work
 2. Log critical decisions with ADRs (Architecture Decision Records)
 3. Define next session objectives
-4. `/handoff quality` - Assess completeness
+4. `/snapshot quality` - Assess completeness
 
-After compact/handover:
-1. `/handoff load` - Restore previous context
+After compact:
+1. `/snapshot load` - Restore previous context
 2. Review decisions for continuity
 3. Check quality score
 4. Continue with prioritized objectives
 
-**Critical Rule**: "Active Work At Handoff" vs "Current Tasks"
-- **Active Work At Handoff**: ONLY work done in THIS session (files modified, tools executed)
+**Critical Rule**: "Active Work At Snapshot" vs "Current Tasks"
+- **Active Work At Snapshot**: ONLY work done in THIS session (files modified, tools executed)
 - **Current Tasks**: Pending/in_progress tasks from TaskList (may include work from previous sessions)
-- When creating handover: Verify session work before adding to "Active Work"
+- When creating snapshot: Verify session work before adding to "Active Work"
 
 ## Validation Rules
 
@@ -78,10 +82,10 @@ After compact/handover:
 ## Quick Start
 
 ```bash
-# Install the handoff package
-pip install -e P:/packages/handoff
+# Install the snapshot package
+pip install -e P:/packages/snapshot
 
-# That's it! Handoff capture is fully automatic:
+# That's it! Snapshot capture is fully automatic:
 # - PreCompact hooks capture session state before /compact
 # - Quality scoring is computed automatically
 # - No manual invocation needed
@@ -94,5 +98,5 @@ pip install -e P:/packages/handoff
 | `references/quality-scoring.md` | Quality scoring weights, ratings, and breakdown |
 | `references/core-features.md` | Work context structure, automated detection, scoring algorithm |
 | `references/usage-patterns.md` | Automatic capture, manual CLI, session continuity workflow |
-| `references/handover-template.md` | Full handover document template with examples |
+| `references/handover-template.md` | Full snapshot document template with examples |
 | `references/retention-policy.md` | 90-day retention, auto-cleanup, data storage paths |

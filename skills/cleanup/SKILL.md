@@ -4,16 +4,19 @@ description: Review and clean up directory structure violations with LLM-guided 
 category: maintenance
 version: 1.0.0
 status: stable
+enforcement: advisory
+workflow_steps:
+  - Run cleanup.py in dry-run mode to identify violations
+  - Investigate each violation: list contents, determine if junk or intentional
+  - Delete junk files; ask user before adding anything to policy
+  - Execute cleanup only after user approval
 triggers:
   - /cleanup
   - "directory cleanup"
 aliases:
   - /cleanup
 
-suggest:
-  - /comply
-  - /bug-hunt
-  - /standards
+suggest: []
 ---
 
 # /cleanup - Directory Structure Cleanup
@@ -39,7 +42,6 @@ Review and remediate directory structure violations using an interactive cleanup
 - Integrates with `directory_policy.json` as authoritative configuration
 
 ### Architecture Alignment
-- Works with `/comply`, `/bug-hunt`, `/standards`
 - Integrates with path validation hooks
 - Results reported in `/main` system health check
 
@@ -153,8 +155,8 @@ python P:\.claude\skills\cleanup\scripts\cleanup.py --yes
 3. **If source problems found**: Fix source code first, then re-run `/cleanup`
 4. **If source analysis finds nothing but violations remain**: Manually investigate each remaining violation:
    - List contents of the flagged path (`ls`, `Glob`)
-   - Determine if it's stale debris (empty/obsolete → delete) or intentional (should be added to policy)
-   - **Investigate BEFORE adding to policy**: verify the file serves no purpose before declaring it junk
+   - Determine if it's stale debris (empty/obsolete → delete) or intentional (ask user if it should be preserved)
+   - **NEVER add to policy without explicit user approval** — policy changes require user's explicit consent
    - Do NOT skip to Phase 2 without making a determination
 5. Re-run `/cleanup` after resolving each violation
 

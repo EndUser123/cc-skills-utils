@@ -1,0 +1,4 @@
+{"timestamp": "2026-04-24T18:59:08.246213", "component": "SEARCH_PROVIDER", "latency_ms": 116.77379999309778, "tokens_used": 0, "cache_hit": false, "output_quality": 0.5, "branch": "main"}
+{"timestamp": "2026-04-24T18:59:08.248862", "component": "SEARCH_PROVIDER", "latency_ms": 117.72530002053827, "tokens_used": 0, "cache_hit": false, "output_quality": 0.85, "branch": "main"}
+{"timestamp": "2026-04-24T18:59:08.370097", "component": "CLAUDE_HISTORY", "latency_ms": 168.56259998166934, "tokens_used": 0, "cache_hit": false, "output_quality": 0.76979, "branch": "main"}
+{"timestamp": "2026-04-24T18:59:09.258095", "component": "SEARCH_PROVIDER", "latency_ms": 1127.2123999951873, "tokens_used": 0, "cache_hit": false, "output_quality": 0.7, "branch": "main"}

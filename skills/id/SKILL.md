@@ -66,7 +66,7 @@ ls -la "$(python -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['c
 
 ```bash
 python -c "
-import sys; sys.path.insert(0, 'P:/packages/handoff')
+import sys; sys.path.insert(0, 'P:/packages/snapshot')
 from scripts.hooks.__lib.session_registry import query_registry
 tid = f'console_{__import__(\"os\").environ.get(\"WT_SESSION\",\"\")}'
 entries = query_registry(terminal_id=tid, limit=5)
