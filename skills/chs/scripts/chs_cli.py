@@ -551,7 +551,7 @@ class CHSExporter:
 
         Detection hierarchy (most reliable first):
         1. active-session file written by SessionStart hook (per-terminal, no ambiguity).
-           Written by: P:/packages/handoff/scripts/hooks/SessionStart_handoff_restore.py (symlinked).
+           Written by: P:/packages/snapshot/scripts/hooks/SessionStart_snapshot_restore.py (symlinked).
         2. SDK list_sessions() + file_size cross-reference + last_modified tiebreaker.
            Works reliably in single-terminal environments. In multi-terminal
            environments (concurrent Claude Code sessions in the same project dir),
