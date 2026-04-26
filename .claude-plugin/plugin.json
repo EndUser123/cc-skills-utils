@@ -16,7 +16,7 @@
     "git",
     "gitbatch",
     "gitingest",
-    "handoff",
+    "snapshot",
     "hook-obs",
     "hooks-edit",
     "id",
