@@ -20,7 +20,7 @@ Utility skills for Claude Code — discovery, git operations, hooks, and general
 | gitbatch | Batch skill execution across packages via subagents |
 | gitingest | Ingest GitHub repos into NotebookLM |
 | gitready | Universal package creator and portfolio polisher |
-| handoff | Research-backed handover documentation |
+| snapshot | Session snapshot capture and restore |
 | hook-obs | Hook observability — performance, traces, compliance, inventory |
 | hooks-edit | Edit Claude Code hook files |
 | init | Initialize CLAUDE.md at module/feature root |
