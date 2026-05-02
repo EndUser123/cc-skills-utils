@@ -844,19 +844,26 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
 
     did_commit = False
 
-    # Check for unstaged or untracked changes (not just any output from status --short)
-    if _has_uncommitted_worktree_changes(repo):
-        run("git add -A", cwd=worktree, silent=not VERBOSE)
+    # Loop until no uncommitted worktree changes remain (new changes may land during session)
+    while True:
+        # Stage first, then check — this captures files modified between checks
+        run("git add -A", cwd=worktree, silent=True)
+        status = run(["git", "status", "--porcelain"], cwd=worktree, silent=True)
+        has_changes = any(line.strip() for line in status.stdout.splitlines())
+        if not has_changes:
+            break
 
-        # Generate scoped commit message
         commit_msg = generate_commit_message_for_repo(repo)
+        commit_result = run(["git", "commit", "-m", commit_msg], cwd=worktree, silent=True)
 
-        commit_result = run([
-            "git", "commit", "-m", commit_msg
-        ], cwd=worktree, silent=not VERBOSE)
+        if commit_result.returncode != 0:
+            # Check if it's "nothing to commit" — if so, we're done
+            if "nothing to commit" in commit_result.stderr.lower():
+                break
+            print(f"  X Commit failed ({commit_result.stderr.strip()[:100]}), leaving dirty state for manual resolution")
+            break
 
-        did_commit = commit_result.returncode == 0
-
+        did_commit = True
         if VERBOSE:
             print(f"  Committed: {commit_msg}")
 
