@@ -845,9 +845,16 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
     did_commit = False
 
     # Loop until no uncommitted worktree changes remain (new changes may land during session)
+    max_iterations = 20
     while True:
+        max_iterations -= 1
         # Stage first, then check — this captures files modified between checks
-        run("git add -A", cwd=worktree, silent=True)
+        add_result = run("git add -A", cwd=worktree, silent=True)
+        if add_result.returncode != 0 and "index.lock" in add_result.stderr:
+            # Concurrent git process — wait briefly and retry (common during health check parallel workers)
+            import time; time.sleep(0.5)
+            add_result = run("git add -A", cwd=worktree, silent=True)
+
         status = run(["git", "status", "--porcelain"], cwd=worktree, silent=True)
         has_changes = any(line.strip() for line in status.stdout.splitlines())
         if not has_changes:
@@ -857,15 +864,22 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=worktree, silent=True)
 
         if commit_result.returncode != 0:
-            # Check if it's "nothing to commit" — if so, we're done
             if "nothing to commit" in commit_result.stderr.lower():
                 break
-            print(f"  X Commit failed ({commit_result.stderr.strip()[:100]}), leaving dirty state for manual resolution")
+            if "index.lock" in commit_result.stderr:
+                # Concurrent git process — wait and retry
+                import time; time.sleep(0.5)
+                continue
+            print(f"  X Commit failed ({commit_result.stderr.strip()[:100] if commit_result.stderr else 'unknown error'}), leaving dirty state for manual resolution")
             break
 
         did_commit = True
         if VERBOSE:
             print(f"  Committed: {commit_msg}")
+
+        if max_iterations <= 0:
+            print(f"  X Max iterations reached ({max_iterations}), leaving dirty state")
+            break
 
     # Push if main repo (auto-push)
     if is_main:
