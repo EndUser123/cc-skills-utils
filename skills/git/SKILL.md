@@ -177,6 +177,14 @@ git push -u origin main
 
 ---
 
+## ⚠️ Staged Changes Safety Check
+
+Before running `git checkout`, `git reset --hard`, or `git stash pop` inside a repo, the /git skill checks for staged-but-uncommitted changes via `git diff --cached --name-only`. If files are staged, the operation is refused with a descriptive error.
+
+**Why this matters**: `git status` shows clean when the staging area matches HEAD (no worktree diff), even though destructive commands would destroy the worktree copies of your staged changes. The staging area is safe; the worktree copy is not.
+
+**Automation**: The safety check is built into sync.py via the shared `git_guard_config.py` — no manual intervention needed. This applies to all `git checkout --`, `git reset --hard`, and `git stash drop/clear` operations that sync.py would execute.
+
 **Version:** 2.2
 **Updated:** April 13, 2026
 **Status:** Production ready - dependency-first multi-repo sync + auto-push all repos

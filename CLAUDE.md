@@ -2,49 +2,51 @@
 
 Utility skills for Claude Code — discovery, git operations, hooks, and general tooling.
 
-## Skills (30)
+## Skills (34)
 
 | Skill | Purpose |
 |-------|---------|
-| aid | AI-Distiller wrapper for code analysis |
-| ask | Universal CLI router for command discovery and orchestration |
-| chs | Chat history search with summarization and filtering |
-| cks-usage | Constitutional Knowledge System usage patterns |
-| cleanup | Directory structure cleanup with LLM-guided analysis |
-| context-status | Context usage statistics via compaction timing |
-| context7 | Fetch fresh, version-specific documentation via Context7 API |
-| data-safety-vcs | Data safety and version control standard for solo dev |
-| discover | Codebase pattern discovery and architecture analysis |
-| explore | Unified search across local data and web |
-| git | Multi-repo sync, worktree management, conflict resolution |
-| gitbatch | Batch skill execution across packages via subagents |
-| gitingest | Ingest GitHub repos into NotebookLM |
-| gitready | Universal package creator and portfolio polisher |
-| snapshot | Session snapshot capture and restore |
-| hook-obs | Hook observability — performance, traces, compliance, inventory |
-| hooks-edit | Edit Claude Code hook files |
-| init | Initialize CLAUDE.md at module/feature root |
-| main | Cognitive Steering Framework — health checks and workspace validation |
-| main-hooks | Cognitive Steering Framework with enforcement hooks |
-| multi-instance-coherence | Coherence across multiple AI instances and concurrent tasks |
-| optimize-claude-md | Evidence-based CLAUDE.md optimizer using chat transcripts |
-| research | Web research with multiple providers |
-| s | Exploratory strategy with multi-persona brainstorming |
-| search | Unified local search (CKS, CHS, code, docs, skills) |
-| ship | Deploy readiness and runtime snapshot |
-| task | Task list orchestration |
-| team | Multi-agent task coordination for parallel sessions |
-| track | Work-in-progress tracking across terminals and sessions |
-| usm | Skill and plugin discovery, installation, and sync across AI tools |
+| aid | AI Distiller — code analysis and distillation |
+| ask | Ask skill — question answering |
+| bf | Brainstorming engine |
+| chs | Context-aware hint system |
+| cks-usage | CKS usage tracker |
+| cleanup | Directory structure violation cleanup |
+| context-status | Session context status reporter |
+| context7 | Context management via Context7 |
+| crawl | Web content crawler |
+| data-safety-vcs | Data safety and version control |
+| discover | Discover skills and capabilities |
+| explore | Unified local + web search |
+| git | Git operations wrapper |
+| gitbatch | Batch skill application via subagents |
+| gitingest | Git data ingestion |
+| gitpack | Git packaging and distribution |
+| hooks-edit | Hook editing utilities |
+| hook-obs | Hook observation and monitoring |
+| init | Initialization skill |
+| main | Main utility hub |
+| main-hooks | Main hooks management |
+| multi-instance-coherence | Multi-instance coordination |
+| optimize-claude-md | CLAUDE.md optimization |
+| recover | Recovery and restoration |
+| repomix | Repository mixing and sampling |
+| research | Research skill |
+| search | Search across code and docs |
+| ship | Shipping workflow |
+| snapshot | Snapshot and state management |
+| s | Strategy engine — multi-persona brainstorming |
+| task | Task management |
+| team | Team coordination |
+| tilldone | Till-done workflow |
+| usm | Unified skill management |
 
 ## Artifacts Convention
 
-All runtime artifacts write to:
-
-
+All runtime artifacts write to `P:/.claude/.artifacts/<terminal_id>/` (falls back to session dir).
 
 Skills MUST NOT write state to their own directory or to the package root.
 
 ## Installation
 
-Skills surfaced via junctions in .claude/skills/.
+Skills surfaced via junctions in `P:/packages/.claude-marketplace/plugins/cc-skills-utils/`.

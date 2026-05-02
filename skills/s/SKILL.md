@@ -17,7 +17,8 @@ triggers:
 aliases:
   - /s
 suggest:
-  - /r
+  - /genius
+  - /reason
 follow_up_offer:
   - /design
 workflow_steps:

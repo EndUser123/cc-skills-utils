@@ -218,11 +218,13 @@ Manual flags are available for precise control:
 | **DOCS** | Documentation | Markdown files in docs/ |
 | **SKILLS** | Skills & Commands | Progressive disclosure search |
 | **JSONL** | Conversations (Fallback) | Raw conversation files when CHS empty |
+| **QMD_WIKI** | Obsidian Vault (QMD) | Semantic search via `qmd` CLI. Requires: `pip install qmd` |
 
 ## Source Priority
 
 | Query Pattern | Priority Backends | Rationale |
 |---------------|-------------------|-----------|
+| "wiki", "obsidian", "vault" | QMD_WIKI -> CKS | Wiki content first |
 | "git commit", "function xyz" | Code/Grep -> CKS -> CHS | Code first |
 | "pattern xyz", "lesson" | CKS -> DOCS -> CHS | Knowledge first |
 | "we discussed", "said" | CHS -> CKS | Conversation first |

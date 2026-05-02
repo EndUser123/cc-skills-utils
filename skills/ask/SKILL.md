@@ -1,9 +1,10 @@
 ---
 name: ask
-description: Universal CLI router for intelligent command discovery and orchestration
-version: "3.5"
+description: Universal CLI router for intelligent command discovery, prompt enhancement, and orchestration
+version: "3.6"
 status: stable
 category: consultation
+enforcement: advisory
 triggers:
   - /ask
   - "help"
@@ -15,7 +16,23 @@ follow_up_offer:
   - /search
   - /orchestrator
 
-# First-tool coherence (v3.5): /ask is a router — its first substantive
+workflow_steps:
+  - name: triage
+    description: Assess complexity and select cognitive approach
+  - name: parse
+    description: Extract intent from user request
+  - name: enhance
+    description: Detect ambiguity, expand vague prompts, inject domain context
+  - name: explore
+    description: Understand context before routing
+  - name: validate
+    description: Truth-check any claims with evidence-based scoring
+  - name: route
+    description: Match to best command via intent patterns or command discovery
+  - name: execute
+    description: Hand off to target command with gathered context
+
+# First-tool coherence (v3.6): /ask is a router — its first substantive
 # tool must be a discovery/search action, NOT execution (Bash/python).
 # Discovery questions ("what uses X?") require code search first.
 # Routing questions ("which command for X?") require reading skills.
@@ -57,10 +74,11 @@ Primary entry point for all CLI operations with intelligent command discovery, r
 
 1. **TRIAGE** — Assess complexity (reversibility, dependencies) → select path (FAST/STANDARD/CAREFUL)
 2. **PARSE** — Extract intent, explicit commands, claims, context references
-3. **EXPLORE** — Understand context before routing (scan files, search skills, check session history)
-4. **VALIDATE** — Truth-check any claims with evidence-based scoring
-5. **ROUTE** — Match to best command via intent patterns or command discovery
-6. **EXECUTE** — Hand off to target command with gathered context
+3. **ENHANCE** — Detect ambiguity, expand vague prompts, inject domain context
+4. **EXPLORE** — Understand context before routing (scan files, search skills, check session history)
+5. **VALIDATE** — Truth-check any claims with evidence-based scoring
+6. **ROUTE** — Match to best command via intent patterns or command discovery
+7. **EXECUTE** — Hand off to target command with gathered context
 
 ## Validation Rules
 
@@ -82,6 +100,7 @@ When invoked, execute these steps in order. Do not summarize this file.
 ```
 STEP 0: TRIAGE → Assess complexity and select cognitive approach
 STEP 1: PARSE  → Extract intent from user request
+STEP 1.5: ENHANCE → Detect ambiguity, expand vague prompts, inject domain context
 STEP 2: EXPLORE → Understand context before routing (if needed)
 STEP 3: VALIDATE → Truth-check any claims (if present)
 STEP 4: ROUTE  → Match to best command
@@ -128,6 +147,54 @@ Extract from user request:
 - **Explicit command:** Did they mention a specific command? (arch, rca, plan, etc.)
 - **Claims:** Are they asserting completed work? (triggers truth validation)
 - **Context references:** Do they reference files, projects, or prior work?
+
+
+## STEP 1.5: PROMPT ENHANCEMENT
+
+After parsing, evaluate whether the user's prompt is ambiguous, vague, or lacks sufficient context. Enhancement operates on the parsed intent — it does not change the routing decision, only improves the quality of information available for it.
+
+### Ambiguity Detection
+
+Check for these patterns:
+
+| Pattern | Example | Issue |
+|---------|---------|-------|
+| Unclear antecedent | "fix it", "check this" | What specifically? |
+| Missing specifics | "implement this", "add that" | What should be built? |
+| Ambiguous improvement | "make it better", "optimize this" | Which aspects? |
+| Too brief (1-2 words) | "help", "fix", "debug" | No actionable context |
+
+### Domain Context Injection
+
+When domain is detectable from prompt keywords or working directory, inject relevant context:
+
+| Domain | Indicators | Context to Inject |
+|--------|------------|-------------------|
+| Security | auth, vulnerability, XSS, injection | Consider OWASP Top 10, input validation, output encoding |
+| Testing | test, pytest, mock, fixture | TDD principles, arrange-act-assert, edge cases |
+| Database | sql, migration, schema, query | Data integrity, transaction safety, indexing |
+| Frontend | react, component, css, html | Component reusability, accessibility, responsive design |
+
+### Enhancement Actions
+
+```
+IF prompt is ambiguous:
+    → Ask ONE clarifying question before routing
+    → "Which file/component should I focus on?"
+
+IF prompt is too brief (1-2 words) AND no slash command:
+    → Ask what they want to accomplish
+    → Offer 2-3 likely interpretations
+
+IF prompt has detectable domain:
+    → Inject domain context into exploration step
+    → Domain awareness carries through to routed command
+
+IF prompt is specific and clear:
+    → PASS — proceed directly to STEP 2 (no enhancement needed)
+```
+
+**Key constraint**: Enhancement asks at most ONE question. If the prompt is already clear, skip entirely. Enhancement serves routing accuracy, not conversation expansion.
 
 
 ## STEP 2: CONTEXT EXPLORATION
