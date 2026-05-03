@@ -842,6 +842,11 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
     """
     worktree = repo.path
 
+    # Ensure clean state — remove any stale index.lock before starting
+    lock_file = Path(worktree) / ".git" / "index.lock"
+    if lock_file.exists():
+        lock_file.unlink()
+
     did_commit = False
 
     # Loop until no uncommitted worktree changes remain (new changes may land during session)
