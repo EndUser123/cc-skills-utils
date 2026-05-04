@@ -1,6 +1,6 @@
 ---
 name: gitpack
-version: "3.0.0"
+version: "3.1.0"
 status: "stable"
 category: integration
 enforcement: advisory
@@ -86,6 +86,43 @@ This prevents polluting source trees (especially skills/plugin cache) with temp 
 - If packing a skill, also pack its backing service, companion scripts, or related config files if they live in `P:/tools/`, `P:/.claude/`, or other well-known locations
 
 **Rule:** If a file is named in code as a dependency or companion, it belongs in the pack. Err on the side of inclusion.
+
+## Skill Name Resolution
+
+When the target is a known skill name (e.g., `/git`, `handoff:id`), resolve it to a filesystem path before packing:
+
+**Resolution order:**
+1. `P:/.claude/skills/<name>/` — local skill directory
+2. `P:/packages/.claude-marketplace/plugins/<plugin>/skills/<name>/` — marketplace source
+3. `C:/Users/brsth/.claude/plugins/cache/local/<plugin>/<version>/skills/<name>/` — installed plugin cache
+
+**Rule:** Skills installed via marketplace are loaded from the **cache on C:**, not from P: source. Always resolve through the cache path when the plugin is installed.
+
+```python
+# Skill name resolution helper
+SKILL_CACHE_ROOT = Path("C:/Users/brsth/.claude/plugins/cache/local")
+MARKETPLACE_ROOT = Path("P:/packages/.claude-marketplace/plugins")
+
+def resolve_skill_path(skill_ref: str) -> Path | None:
+    """Resolve a skill reference like '/git' or 'handoff:id' to a filesystem path."""
+    # Strip leading slash and split on ':' for namespaced skills
+    name = skill_ref.lstrip("/").split(":")[0]
+    # Check marketplace plugins for matching skill
+    for plugin_dir in MARKETPLACE_ROOT.iterdir():
+        if not plugin_dir.is_dir():
+            continue
+        skill_path = plugin_dir / "skills" / name
+        if skill_path.exists() and skill_path.is_dir():
+            # Check if installed in cache
+            cache_root = SKILL_CACHE_ROOT
+            for cache_plugin in cache_root.iterdir() if cache_root.exists() else []:
+                for version_dir in cache_plugin.iterdir() if cache_plugin.is_dir() else []:
+                    installed = version_dir / "skills" / name
+                    if installed.exists():
+                        return installed
+            return skill_path  # fall back to marketplace source
+    return None
+```
 
 ## Examples
 

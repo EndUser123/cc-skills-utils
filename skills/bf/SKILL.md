@@ -13,9 +13,8 @@ disable-model-invocation: true
 triggers:
   - /bf
 workflow_steps:
-  - import bf_agent
-  - call run_simple / run_compare / run_code
-  - report result
+  - 'if first arg is start, restart, shutdown, or dashboard: run powershell -File P:/.claude/provider-configs/cc-bifrost.ps1 --<arg>'
+  - 'else: import bf_agent, call run_simple / run_compare / run_code, report result'
 ---
 
 You are a Bifrost workbench controller.
@@ -48,9 +47,33 @@ No HTTP, no curl, no subprocess. Just Python in-process.
 - Tool actions: read_file, list_dir, glob, write_file, final_answer
 - Tool results fed back to model each turn until final_answer or max_turns
 
+## Management Commands
+
+These invoke `cc-bifrost.ps1` for process lifecycle control:
+
+- `/bf start` — start bifrost-http daemon on port 8080
+- `/bf restart` — stop then start the daemon
+- `/bf shutdown` — stop the daemon
+- `/bf dashboard` — open `http://localhost:<port>` in default browser
+- `/bf routes` — probe all routing rules: verify target provider, measure latency (1-token completion), flag new models missing from rules
+- `/bf routes --new-only` — show only models in catalog that have no routing rule yet
+
+## Routes Probe (--routes)
+
+The `/bf routes` command runs a two-layer verification:
+
+**DB layer**: Query `routing_rules` + `routing_targets` from `config.db` — shows configured provider/model per CEL expression.
+
+**Runtime layer**: For each routed model, send a single 1-token completion to Bifrost and read `extra_fields.provider` to confirm actual target. Also capture `latency` (ms) and `model_requested`.
+
+**New-model sweep**: Hit `/v1/models` on each configured provider, diff against existing CEL expressions, report models with no current rule.
+
+**No quota burn**: One 1-token completion per routed model. New-model sweep uses `/models` list only — no completions.
+
 ## Invocation
 
   /bf <mode> <model> <prompt...>
+  /bf start|restart|shutdown|dashboard|routes
 
 Argument semantics:
 - `$0` = mode

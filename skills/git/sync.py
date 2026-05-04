@@ -852,17 +852,21 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
     # Loop until no uncommitted worktree changes remain (new changes may land during session)
     max_iterations = 20
     while True:
+        if max_iterations <= 0:
+            print(f"  X Max iterations reached ({max_iterations}), leaving dirty state")
+            break
         max_iterations -= 1
         # Stage first, then check — this captures files modified between checks
         add_result = run("git add -A", cwd=worktree, silent=True)
         if add_result.returncode != 0 and "index.lock" in add_result.stderr:
             # Concurrent git process — wait briefly and retry (common during health check parallel workers)
-            import time; time.sleep(0.5)
+            time.sleep(0.5)
             add_result = run("git add -A", cwd=worktree, silent=True)
+        if add_result.returncode != 0:
+            print(f"  X git add failed ({add_result.stderr.strip()[:100] if add_result.stderr else 'unknown error'}), leaving dirty state")
+            break
 
-        status = run(["git", "status", "--porcelain"], cwd=worktree, silent=True)
-        has_changes = any(line.strip() for line in status.stdout.splitlines())
-        if not has_changes:
+        if not _has_uncommitted_worktree_changes(repo):
             break
 
         commit_msg = generate_commit_message_for_repo(repo)
@@ -873,7 +877,7 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
                 break
             if "index.lock" in commit_result.stderr:
                 # Concurrent git process — wait and retry
-                import time; time.sleep(0.5)
+                time.sleep(0.5)
                 continue
             print(f"  X Commit failed ({commit_result.stderr.strip()[:100] if commit_result.stderr else 'unknown error'}), leaving dirty state for manual resolution")
             break
@@ -881,10 +885,6 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
         did_commit = True
         if VERBOSE:
             print(f"  Committed: {commit_msg}")
-
-        if max_iterations <= 0:
-            print(f"  X Max iterations reached ({max_iterations}), leaving dirty state")
-            break
 
     # Push if main repo (auto-push)
     if is_main:

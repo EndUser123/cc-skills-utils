@@ -11,7 +11,7 @@ workflow_steps:
 allowed_first_tools:
   - Bash
 required_first_command_patterns:
-  - '^python\s+P:/.claude/skills/git/sync\.py(?:\s|$)'
+  - '^python\s+P:/packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync\.py(?:\s|$)'
 required_first_command_hint: Run sync.py first to discover repos and establish the sync plan.
 description: Git sync with multi-repo discovery, dependency-first commit ordering, auto-push for all repos, worktree management, and smart conflict resolution.
 triggers:
@@ -26,8 +26,9 @@ args:
   - --worktree: Worktree management mode (list, add, remove, prune)
   - --no-resolve: Skip automatic conflict resolution (manual mode)
 execution:
-  directive: "If --worktree: manage worktrees. Otherwise: discover all git repos, auto-sync all repos (commit first, push after dependency ordering). Use --select for selective pushing."
+  directive: "If --worktree: manage worktrees. Otherwise: discover all git repos, auto-sync all repos (commit first, push after dependency ordering). Use --select for selective pushing. For heavy syncs (>5 repos), delegate to a subagent with result envelope to avoid orchestrator context bloat."
   default_args: ""
+  agent_hint: "Spawn as subagent for full-sync operations; sync.py handles internal multi-repo discovery with ThreadPoolExecutor. Pass result envelope back (status, artifact path, summary)."
   examples:
     - "/git"
     - "/git --verbose"
@@ -82,7 +83,7 @@ do_not:
 **MANDATORY ACTION: Run sync.py for multi-repo sync + worktree management**
 
 ```bash
-python P:/.claude/skills/git/sync.py [args]
+python P:/packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync.py [args]
 ```
 
 ---
