@@ -1,8 +1,0 @@
-SESSION INITIALIZATION CHECKLIST
-
-At conversation start, verify:
-
-1. State Consistency: Check git status, sapling backups, running processes
-2. Context Validation: Are previous assumptions still valid?
-3. Operation Log: What did other instances execute since last sync?
-4. Conflict Detection: Are there uncommitted changes from parallel work?

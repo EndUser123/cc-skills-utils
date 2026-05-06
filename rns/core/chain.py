@@ -550,6 +550,24 @@ def get_current_transcript_path() -> Path | None:
 
         import os
 
+        # 0. Read identity.json (authoritative, hook-captured by SessionStart)
+        # This is the /id method - the definitive source written by SessionStart hook
+        wt_session = os.environ.get("WT_SESSION", "")
+        if wt_session:
+            identity_path = PPath("P:/.claude/.artifacts") / f"console_{wt_session}" / "identity.json"
+            if identity_path.exists():
+                try:
+                    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+                    tpath = identity.get("claude", {}).get("transcript_path")
+                    if tpath:
+                        tp = PPath(tpath)
+                        if tp.exists():
+                            return tp
+                except json.JSONDecodeError as e:
+                    logger.debug("identity.json parse error: %s", e)
+                except OSError as e:
+                    logger.debug("identity.json read error: %s", e)
+
         # 1. Query the session harness for transcript path
         # SESSION_REVERSION_INPROCESS is set during session restore/compact
         # The harness writes transcript_path into the compact/restore state
@@ -581,8 +599,10 @@ def get_current_transcript_path() -> Path | None:
                             tp = PPath(tpath)
                             if tp.exists():
                                 return tp
-                    except (json.JSONDecodeError, OSError):
-                        pass
+                    except json.JSONDecodeError as e:
+                        logger.debug("handoff file parse error: %s", e)
+                    except OSError as e:
+                        logger.debug("handoff file read error: %s", e)
 
         # 3. Fallback: use Claude Code's own transcript path env var
         # This is set during session start and is more reliable than mtime selection

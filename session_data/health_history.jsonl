@@ -1,0 +1,1 @@
+{"timestamp": "2026-05-05T18:36:47.173808", "score": 72, "status": "warning", "checks": {"hook_syntax": "healthy", "hook_stats": "healthy", "env_changes": "warning", "fap_layers": "healthy", "settings": "critical", "hooks": "warning", "workspace": "healthy", "cve_remediation": "warning"}}
