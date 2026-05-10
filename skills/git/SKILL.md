@@ -11,7 +11,7 @@ workflow_steps:
 allowed_first_tools:
   - Bash
 required_first_command_patterns:
-  - '^python\s+P:/packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync\.py(?:\s|$)'
+  - '^python\s+P:\\\\\\packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync\.py(?:\s|$)'
 description: Unified Git & Fleet Management — multi-repo sync, batch skill application, and safety standards.
 triggers:
   - /git
@@ -28,7 +28,7 @@ Single entry point for multi-repo synchronization, batch skill execution, and VC
 **When /git is invoked (no args or sync), IMMEDIATELY execute:**
 
 ```bash
-python P:/packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync.py [args]
+python P:\\\\\\packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync.py [args]
 ```
 
 ---
@@ -46,7 +46,7 @@ python P:/packages/.claude-marketplace/plugins/cc-skills-utils/skills/git/sync.p
 
 ## 1. Multi-Repo Sync (`/git`)
 
-Discovers and synchronizes all `.git` directories under `P:/` (Main, Packages, MCP, Internal).
+Discovers and synchronizes all `.git` directories under `P:\\\\\\` (Main, Packages, MCP, Internal).
 
 **Flags:**
 - `--health`: Check status only (don't sync).

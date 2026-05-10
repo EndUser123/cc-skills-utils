@@ -35,7 +35,7 @@ from typing import Callable
 TOOLS_DIR = Path(__file__).parent
 SKILLS_DIR = TOOLS_DIR.parent.parent
 CLAUDE_DIR = SKILLS_DIR.parent
-PROJECT_ROOT = Path("P:/")
+PROJECT_ROOT = Path("P:\\\\\\")
 HISTORY_FILE = CLAUDE_DIR / "session_data" / "health_history.jsonl"
 ENV_STATE_FILE = CLAUDE_DIR / "session_data" / "env_vars_state.json"
 BASELINE_FILE = CLAUDE_DIR / "session_data" / "health_baseline.json"
@@ -420,10 +420,10 @@ def run_check(name: str, script: Path, timeout: int = 30) -> CheckResult:
             # Detect fixable issues
             if "watcher.log" in line and "runaway" in line_lower:
                 fixable.append(
-                    {"action": "truncate", "target": "P:/.claude/hooks/logs/watcher.log"}
+                    {"action": "truncate", "target": "P:\\\\\\.claude/hooks/logs/watcher.log"}
                 )
             if "RESTORE_CONTEXT.md" in line and "exists" in line_lower:
-                fixable.append({"action": "delete", "target": "P:/.claude/RESTORE_CONTEXT.md"})
+                fixable.append({"action": "delete", "target": "P:\\\\\\.claude/RESTORE_CONTEXT.md"})
             if "stale lock" in line_lower:
                 # Extract lock file path
                 if ".git" in line:
@@ -1030,8 +1030,8 @@ def run_spec_drift_check() -> CheckResult:
 
     # Find all SKILL.md files
     skills_skill_dirs = [
-        SKILLS_DIR,  # P:/.claude/skills/
-        CLAUDE_DIR / "packages",  # P:/packages/
+        SKILLS_DIR,  # P:\\\\\\.claude/skills/
+        CLAUDE_DIR / "packages",  # P:\\\\\\packages/
     ]
 
     import re
@@ -1109,8 +1109,8 @@ def run_skill_dependency_check() -> CheckResult:
 
     # All skill directories to scan
     skills_skill_dirs = [
-        SKILLS_DIR,  # P:/.claude/skills/
-        CLAUDE_DIR / "packages",  # P:/packages/
+        SKILLS_DIR,  # P:\\\\\\.claude/skills/
+        CLAUDE_DIR / "packages",  # P:\\\\\\packages/
     ]
 
     import re

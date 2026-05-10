@@ -4,7 +4,7 @@ Smart Git Sync with Multi-Repo Discovery, Health Check, Worktree Management, and
 
 Behavior:
 - Non-main repos: auto-commit first so parent gitlinks can be updated cleanly
-- Main repo (P:/.git): auto-commit after dependency repos, then auto-push
+- Main repo (P:\\\\\\.git): auto-commit after dependency repos, then auto-push
 - All repos: auto-push after commits, with optional --select for manual control
 
 Features:
@@ -45,7 +45,7 @@ _FALLBACK_OPS = {
 }
 
 try:
-    _hooks_lib = str(Path("P:/.claude/hooks/__lib").resolve())
+    _hooks_lib = str(Path("P:\\\\\\.claude/hooks/__lib").resolve())
     sys.path.insert(0, _hooks_lib)
     from git_guard_config import DESTRUCTIVE_GIT_OPS
 except ImportError:
@@ -73,9 +73,9 @@ from sync_utils import generate_commit_message as generate_scoped_commit_message
 # CONFIGURATION
 # ============================================================
 
-MAIN_ROOT = Path("P:/")
+MAIN_ROOT = Path("P:\\\\\\")
 if not MAIN_ROOT.exists():
-    print("ERROR: P:/ drive not accessible", file=sys.stderr)
+    print("ERROR: P:\\\\\\ drive not accessible", file=sys.stderr)
     sys.exit(1)
 CLAUDE_DIR = MAIN_ROOT / ".claude"
 WORKTREES_DIR = MAIN_ROOT / "worktrees"
@@ -87,7 +87,7 @@ HOME_REPO_GIT_DIR = HOME_CLAUDE_DIR / ".git"
 
 # Repo classification
 class RepoType:
-    MAIN = "main"           # P:/.git - auto-push
+    MAIN = "main"           # P:\\\\\\.git - auto-push
     PACKAGE = "package"      # packages/*/.git
     MCP = "mcp"             # packages/.mcp/*/.git
     INTERNAL = "internal"   # .claude/hooks/.git, .claude/skills/*/.git
@@ -266,7 +266,7 @@ def is_nested_repo(repo: RepoInfo, all_repos: List[RepoInfo]) -> bool:
     Returns True if this repo should be excluded (it's inside another repo).
 
     A repo is nested if its path is a subdirectory of another repo's path.
-    The main repo (P:/) is the exception - packages are legitimately under it.
+    The main repo (P:\\\\\\) is the exception - packages are legitimately under it.
     """
     # Main repo is never nested
     if repo.repo_type == RepoType.MAIN:
@@ -303,7 +303,7 @@ def is_nested_repo(repo: RepoInfo, all_repos: List[RepoInfo]) -> bool:
     # For example: packages/gitready/skills/gitready is inside packages/gitready
     for other in all_repos:
         if other.repo_type == RepoType.MAIN:
-            continue  # Main repo (P:/) contains everything legitimately
+            continue  # Main repo (P:\\\\\\) contains everything legitimately
 
         if other == repo:
             continue  # Don't compare with self
@@ -319,7 +319,7 @@ def is_nested_repo(repo: RepoInfo, all_repos: List[RepoInfo]) -> bool:
     return False
 
 def find_all_git_repos() -> Tuple[List[RepoInfo], List[RepoInfo]]:
-    """Find all git repos under P:/.
+    """Find all git repos under P:\\\\\\.
 
     Returns (non_nested, nested) where nested repos are those detected but
     excluded from sync because they are inside the main worktree.
@@ -372,7 +372,7 @@ def find_all_git_repos() -> Tuple[List[RepoInfo], List[RepoInfo]]:
             name=name
         ))
 
-    # Also check user home .claude repo (separate git repo, not under P:/)
+    # Also check user home .claude repo (separate git repo, not under P:\\\\\\)
     if HOME_REPO_GIT_DIR.exists():
         repos.append(RepoInfo(
             path=HOME_CLAUDE_DIR,
@@ -1100,7 +1100,7 @@ if main_repo:
 
     sync_single_repo(main_repo, is_main=False)
 else:
-    item("Main repo", "error", "Not found at P:/.git")
+    item("Main repo", "error", "Not found at P:\\\\\\.git")
 
 # ============================================================
 # PHASE 6: PUSH NON-MAIN REPOS

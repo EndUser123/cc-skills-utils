@@ -1,6 +1,6 @@
 # gitbatch — Batch Package Polish
 
-Preview and document batch skill application across packages in `P:/packages`.
+Preview and document batch skill application across packages in `P:\\\\\\packages`.
 
 **Current Status**: Preview/documentation tool. Actual batch execution requires
 manual skill invocation (slash commands cannot be chained from bash scripts).
@@ -26,10 +26,10 @@ manual skill invocation (slash commands cannot be chained from bash scripts).
 ```
 /gitbatch --dry-run /gitready
 === Shows ===
-Would execute: Skill(skill="/gitready", args="--target P:/packages/claude-history"))
+Would execute: Skill(skill="/gitready", args="--target P:\\\\\\packages/claude-history"))
 
 Then you run:
-Skill(skill="gitready", args="--target P:/packages/claude-history")
+Skill(skill="gitready", args="--target P:\\\\\\packages/claude-history")
 ```
 
 ## Skill Setup (Windows Junction)
@@ -37,7 +37,7 @@ Skill(skill="gitready", args="--target P:/packages/claude-history")
 After creating the package, link it into your skills directory:
 
 ```powershell
-New-Item -ItemType Junction -Path "P:\.claude\skills\gitbatch" -Target "P:\packages\gitbatch\skills\gitbatch"
+New-Item -ItemType Junction -Path "$CLAUDE_ROOT/skills\gitbatch" -Target "P:\\\\\\packages\gitbatch\skills\gitbatch"
 ```
 
 ## Architecture

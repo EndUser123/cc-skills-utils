@@ -38,7 +38,7 @@ Total: ~300 tokens through orchestrator (8 envelopes × ~40 tokens)
 ```json
 {
   "status": "done | blocked | error",
-  "artifact": "P:/packages/gitbatch/.evidence/batch_<ts>/<pkg>.json",
+  "artifact": "P:\\\\\\packages/gitbatch/.evidence/batch_<ts>/<pkg>.json",
   "summary": "≤200 characters — what happened, key metrics",
   "metrics": {
     "bytes_written": 2048,

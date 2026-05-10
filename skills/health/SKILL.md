@@ -37,7 +37,7 @@ Unified command for system health checks, hook observability, and workspace main
 **When /health is invoked (with no args or --health), IMMEDIATELY execute:**
 
 ```bash
-python P:/packages/.claude-marketplace/plugins/cc-skills-utils/skills/health/scripts/main_health.py
+python P:\\\\\\packages/.claude-marketplace/plugins/cc-skills-utils/skills/health/scripts/main_health.py
 ```
 
 ## Subcommands & Modes

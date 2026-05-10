@@ -2,7 +2,7 @@
 """
 workspace_state_check.py - Check workspace state health
 
-Run: python P:/.claude/skills/_tools/workspace_state_check.py
+Run: python P:\\\\\\.claude/skills/_tools/workspace_state_check.py
 Returns exit code 0 if healthy, 1 if issues found
 
 Checks:
@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Paths
-PROJECT_ROOT = Path(r"P:/")
+PROJECT_ROOT = Path(r"P:\\\\\\")
 CLAUDE_DIR = PROJECT_ROOT / ".claude"
 RESTORE_CONTEXT_PATH = CLAUDE_DIR / "RESTORE_CONTEXT.md"
 
@@ -165,7 +165,7 @@ def main():
                 print(f"• {w}")
 
         if has_restore:
-            print("• Run: /restore or delete P:/.claude/RESTORE_CONTEXT.md")
+            print("• Run: /restore or delete P:\\\\\\.claude/RESTORE_CONTEXT.md")
         return 1
     else:
         return 0

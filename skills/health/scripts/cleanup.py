@@ -52,7 +52,7 @@ from datetime import datetime
 from pathlib import Path
 
 # Import type validator and location optimizer for whitelist bypass detection
-# Path: cleanup.py (P:\.claude\skills\cleanup\scripts\cleanup.py) -> up 4 levels -> .claude/ -> hooks/__lib/
+# Path: cleanup.py ($CLAUDE_ROOT/skills\cleanup\scripts\cleanup.py) -> up 4 levels -> .claude/ -> hooks/__lib/
 lib_path = Path(__file__).parent.parent.parent.parent / "hooks" / "__lib"
 sys.path.insert(0, str(lib_path))
 try:
@@ -96,7 +96,7 @@ def safe_input(prompt: str, default: str = "skip") -> str:
 
 
 # Multi-terminal cleanup lock to prevent race conditions
-# Lock file location: P:/.claude/state/cleanup.lock
+# Lock file location: P:\\\\\\.claude/state/cleanup.lock
 CLEANUP_LOCK_FILE = Path(__file__).parent.parent.parent.parent / "state" / "cleanup.lock"
 CLEANUP_LOCK_TIMEOUT = 300  # 5 minutes in seconds
 
@@ -772,7 +772,7 @@ def check_content_conflict(source: str, target: str) -> dict:
     return result
 
 
-def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
+def detect_heuristic_violations(root_path: str = "P:\\\\\\") -> list[dict]:
     r"""Detect junk using heuristics instead of enumerated patterns.
 
     Categories detected:
@@ -793,7 +793,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
     violations = []
 
     # Load policy from directory_policy.json (load once, reuse)
-    policy_path = Path("P:/.claude/hooks/config/directory_policy.json")
+    policy_path = Path("P:\\\\\\.claude/hooks/config/directory_policy.json")
     policy_data = {}
     dotfile_check_list = [".coverage"]  # Default fallback
     dotfile_suggestions = {}  # Store suggestions for each dotfile
@@ -967,7 +967,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                         "rule": "ORPHANED_DOTDIR",
                         "path": str(item),
                         "message": f"Orphaned dot-directory '{item.name}' — should be deleted (canonical location is .claude/.claude-state/)",
-                        "suggestion": f"Delete P:/{item.name}/ — these directories are now blocked in directory_policy.json",
+                        "suggestion": f"Delete P:\\\\\\{item.name}/ — these directories are now blocked in directory_policy.json",
                     }
                 )
                 continue
@@ -1032,7 +1032,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                                             "rule": "DETACHED_GIT_REPO",
                                             "path": str(item),
                                             "message": f"Bare git repository '{item.name}' at workspace root",
-                                            "suggestion": "Move to packages/ if part of monorepo, or move outside P:/ if external reference.",
+                                            "suggestion": "Move to packages/ if part of monorepo, or move outside P:\\\\\\ if external reference.",
                                         }
                                     )
                                     continue
@@ -1048,7 +1048,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                                 config_content = git_config.read_text(
                                     encoding="utf-8", errors="ignore"
                                 )
-                                # Has remote "url" = external/nested repo (not the main P:/.git)
+                                # Has remote "url" = external/nested repo (not the main P:\\\\\\.git)
                                 if "remote" in config_content and "url" in config_content:
                                     violations.append(
                                         {
@@ -1056,7 +1056,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                                             "rule": "DETACHED_GIT_REPO",
                                             "path": str(item),
                                             "message": f"Git repository '{item.name}' at workspace root (nested repo)",
-                                            "suggestion": "Move to packages/ if part of monorepo, or move outside P:/ if external reference. Git repos create confusion when nested at workspace root.",
+                                            "suggestion": "Move to packages/ if part of monorepo, or move outside P:\\\\\\ if external reference. Git repos create confusion when nested at workspace root.",
                                         }
                                     )
                                     continue
@@ -1077,7 +1077,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
                             "type": "UNAUTHORIZED_ROOT_DIRECTORY",
                             "rule": "UNAUTHORIZED_ROOT_DIRECTORY",
                             "path": str(item),
-                            "message": "Directory 'Users' at workspace root is a user home artifact - should never be in P:/",
+                            "message": "Directory 'Users' at workspace root is a user home artifact - should never be in P:\\\\\\",
                             "suggestion": "Delete - user home directories do not belong in workspace root",
                         }
                     )
@@ -1295,7 +1295,7 @@ def detect_heuristic_violations(root_path: str = "P:/") -> list[dict]:
 
 
 def detect_internal_violations(
-    root_path: str = "P:/", claude_dir_blocked_patterns: list = None, claude_dir_allowed_subdirs: list = None
+    root_path: str = "P:\\\\\\", claude_dir_blocked_patterns: list = None, claude_dir_allowed_subdirs: list = None
 ) -> list[dict]:
     r"""Detect junk inside authorized directories.
 
@@ -1560,7 +1560,7 @@ def detect_internal_violations(
     return violations
 
 
-def run_validator(root_path: str = "P:/", max_files: int = 50) -> dict:
+def run_validator(root_path: str = "P:\\\\\\", max_files: int = 50) -> dict:
     """Run path_validator and return results.
 
     Args:
@@ -1629,7 +1629,7 @@ def classify_violation(v: dict) -> tuple[str, str | None]:
     path = Path(v.get("path", ""))
 
     # Domain 1: Claude Code Runtime Artifacts
-    # Misplaced .claude infrastructure that should be in P:/.claude/
+    # Misplaced .claude infrastructure that should be in P:\\\\\\.claude/
     if vtype == "BLOCKED_ROOT_DIRECTORY" and "__csf\\.claude" in str(path):
         return "Claude Code Runtime", "Misplaced infrastructure"
 
@@ -1818,7 +1818,7 @@ def generate_recommended_actions(domain: str, violations: list[dict]) -> list[st
     actions = []
 
     if domain == "Claude Code Runtime":
-        actions.append("Move __csf\\.claude → P:\\.claude\\ (infrastructure fix)")
+        actions.append("Move __csf\\.claude → P:\\\\\\\.claude\\ (infrastructure fix)")
         actions.append("Verify .claude/agents/ and .claude/hooks/ are correctly placed")
 
     elif domain == "Temporary Files":
@@ -1827,8 +1827,8 @@ def generate_recommended_actions(domain: str, violations: list[dict]) -> list[st
         actions.append("Review test_*.txt files - delete if obsolete evidence")
 
     elif domain == "Plan Documentation":
-        actions.append("Move active plan*.md files to P:\\.claude\\plans\\")
-        actions.append("Archive completed plans to P:\\.claude\\plans\\archive\\")
+        actions.append("Move active plan*.md files to P:\\\\\\\.claude\\plans\\")
+        actions.append("Archive completed plans to P:\\\\\\\.claude\\plans\\archive\\")
         actions.append("Or: Add to allowed_config_files if needed at root")
 
     elif domain == "Test Files":
@@ -1962,7 +1962,7 @@ def format_violation(v: dict) -> str:
             for ref_file in files_to_show:
                 # Make path relative for cleaner display
                 try:
-                    rel_path = Path(ref_file).relative_to(Path("P:/"))
+                    rel_path = Path(ref_file).relative_to(Path("P:\\\\\\"))
                     lines.append(f"       • {rel_path}")
                 except Exception:
                     lines.append(f"       • {ref_file}")
@@ -2040,11 +2040,11 @@ def display_violations(results: dict, show_all: bool = False) -> None:
     print()
 
 
-def find_import_references(file_path: str, search_root: str = "P:/__csf") -> list[str]:
+def find_import_references(file_path: str, search_root: str = "P:\\\\\\__csf") -> list[str]:
     """Search for imports referencing the target file using CDS backend.
 
     Args:
-        file_path: File being moved (e.g., 'P:/__csf/test_feature.py')
+        file_path: File being moved (e.g., 'P:\\\\\\__csf/test_feature.py')
         search_root: Root directory to search for references
 
     Returns:
@@ -2052,8 +2052,8 @@ def find_import_references(file_path: str, search_root: str = "P:/__csf") -> lis
     """
     try:
         # Derive module name from file path
-        # P:/__csf/test_feature.py -> src.test_feature
-        # P:/__csf/subdir/file.py -> subdir.file
+        # P:\\\\\\__csf/test_feature.py -> src.test_feature
+        # P:\\\\\\__csf/subdir/file.py -> subdir.file
         file_path_obj = Path(file_path).resolve()
 
         # Derive module name by stripping __csf container
@@ -2082,9 +2082,9 @@ def find_import_references(file_path: str, search_root: str = "P:/__csf") -> lis
                     # Single file after __csf
                     module_candidates = [module_name]
         else:
-            # For non-__csf files, use relative path from P:\
+            # For non-__csf files, use relative path from P:\\\\\\
             try:
-                rel_parts = file_path_obj.relative_to(Path("P:/")).parts
+                rel_parts = file_path_obj.relative_to(Path("P:\\\\\\")).parts
                 module_name = str(rel_parts[-1]).replace(".py", "")
                 if len(rel_parts) > 1:
                     prefix = ".".join(rel_parts[:-1]) + "."
@@ -2202,7 +2202,7 @@ def find_import_references(file_path: str, search_root: str = "P:/__csf") -> lis
         return []
 
 
-def scan_test_directories(root_path: str = "P:/") -> list[dict]:
+def scan_test_directories(root_path: str = "P:\\\\\\") -> list[dict]:
     """Scan workspace for existing test directories.
 
     Returns a list of test directories with metadata:
@@ -2256,7 +2256,7 @@ def scan_test_directories(root_path: str = "P:/") -> list[dict]:
 
 
 def determine_test_destination(
-    test_file: str, test_dirs: list[dict], root_path: str = "P:/"
+    test_file: str, test_dirs: list[dict], root_path: str = "P:\\\\\\"
 ) -> tuple[str, str, str]:
     """Determine the best destination for a test file.
 
@@ -2377,7 +2377,7 @@ def _display_test_directories(test_dirs: list[dict]) -> None:
     if test_dirs:
         print(f"   Found {len(test_dirs)} test directory(ies):")
         for td in test_dirs[:5]:  # Show first 5
-            rel_path = Path(td["path"]).relative_to("P:/")
+            rel_path = Path(td["path"]).relative_to("P:\\\\\\")
             type_label = td["type"]
             pkg_info = f" ({td['package_name']})" if td.get("package_name") else ""
             print(f"     - [{type_label}]{pkg_info} {rel_path}")
@@ -2672,8 +2672,8 @@ def _handle_move_suggestion(
     )
 
     if is_test_move:
-        smart_dest, confidence, reason = determine_test_destination(file_path, test_dirs, "P:/")
-        rel_dest = Path(smart_dest).relative_to("P:/")
+        smart_dest, confidence, reason = determine_test_destination(file_path, test_dirs, "P:\\\\\\")
+        rel_dest = Path(smart_dest).relative_to("P:\\\\\\")
 
         # In auto-approve mode, only move if HIGH confidence
         if yes and confidence != "HIGH":
@@ -2731,13 +2731,13 @@ def _handle_move_suggestion(
                 summary["failed"] += 1
 
 
-def execute_delete(file_path: str, force: bool = False, search_root: str = "P:/") -> bool:
+def execute_delete(file_path: str, force: bool = False, search_root: str = "P:\\\\\\") -> bool:
     """Execute delete operation with import reference checking for Python files.
 
     Args:
         file_path: Path to delete
         force: If True, skip reference checks (default: False)
-        search_root: Root directory for reference search (default: "P:/")
+        search_root: Root directory for reference search (default: "P:\\\\\\")
 
     Returns:
         True if successful, False if rejected due to active references
@@ -2812,7 +2812,7 @@ def interactive_cleanup(
 
     # Scan for test directories once at session start for smart destination logic
     print("🔍 Scanning workspace for test directories...")
-    test_dirs = scan_test_directories("P:/")
+    test_dirs = scan_test_directories("P:\\\\\\")
     _display_test_directories(test_dirs)
 
     if yes:
@@ -2855,7 +2855,7 @@ def interactive_cleanup(
     return summary
 
 
-def analyze_source_code_problems(violations: list[dict], search_root: str = "P:/") -> dict:
+def analyze_source_code_problems(violations: list[dict], search_root: str = "P:\\\\\\") -> dict:
     """Analyze violations to identify source code generating them.
 
     PRINCIPLE: Fix the source, not the symptom.
@@ -2895,7 +2895,7 @@ def analyze_source_code_problems(violations: list[dict], search_root: str = "P:/
             test_evidence_violations.append(v)
 
         # Data directory violations
-        if path_str.startswith("P:\\data") or path_str.startswith("P:\\__csf\\.claude"):
+        if path_str.startswith("P:\\\\\\\data") or path_str.startswith("P:\\\\\\\__csf\\.claude"):
             data_misplacement_violations.append(v)
 
         # Placeholder directory violations (fake, current, output, etc.)
@@ -2913,7 +2913,7 @@ def analyze_source_code_problems(violations: list[dict], search_root: str = "P:/
         for v in violation_list:
             try:
                 path_obj = Path(v.get("path", ""))
-                rel_path = path_obj.relative_to("P:/")
+                rel_path = path_obj.relative_to("P:\\\\\\")
                 if len(rel_path.parts) >= 2:
                     module_key = "/".join(rel_path.parts[:2])
                     if module_key not in groups:
@@ -2933,7 +2933,7 @@ def analyze_source_code_problems(violations: list[dict], search_root: str = "P:/
         """
         try:
             source_path = Path(source_file)
-            rel_source = source_path.relative_to("P:/")
+            rel_source = source_path.relative_to("P:\\\\\\")
             if len(rel_source.parts) >= 2:
                 module_key = "/".join(rel_source.parts[:2])
                 return violation_groups.get(module_key, [])
@@ -3012,7 +3012,7 @@ def analyze_source_code_problems(violations: list[dict], search_root: str = "P:/
             {
                 "source_file": source_file,
                 "issue_type": "root_path_construction",
-                "description": "Constructs paths to workspace root (P:/) instead of proper locations",
+                "description": "Constructs paths to workspace root (P:\\\\\\) instead of proper locations",
                 "fixes": issues,
                 "violations": [v["path"] for v in related],
             }
@@ -3021,8 +3021,8 @@ def analyze_source_code_problems(violations: list[dict], search_root: str = "P:/
             [
                 v
                 for v in violations
-                if v.get("path", "").startswith("P:/")
-                and len(Path(v["path"]).relative_to("P:/").parts) == 1
+                if v.get("path", "").startswith("P:\\\\\\")
+                and len(Path(v["path"]).relative_to("P:\\\\\\").parts) == 1
             ]
         )
 
@@ -3153,8 +3153,8 @@ def find_root_path_construction_sources(
     """Find source files that construct paths to workspace root directories.
 
     Detects patterns like:
-    - Path / "dirname" (creates P:/dirname)
-    - project_root / "state" (creates P:/state if project_root = P:/)
+    - Path / "dirname" (creates P:\\\\\\dirname)
+    - project_root / "state" (creates P:\\\\\\state if project_root = P:\\\\\\)
     - .parent.parent.parent (might resolve to root)
 
     Args:
@@ -3171,9 +3171,9 @@ def find_root_path_construction_sources(
     root_dir_names = set()
     for v in violations:
         path_obj = Path(v.get("path", ""))
-        # Check if it's a direct child of P:/
+        # Check if it's a direct child of P:\\\\\\
         try:
-            rel_path = path_obj.relative_to("P:/")
+            rel_path = path_obj.relative_to("P:\\\\\\")
             if len(rel_path.parts) == 1 and not rel_path.suffix:  # Single-level directory
                 root_dir_names.add(rel_path.name)
         except ValueError:
@@ -3230,14 +3230,14 @@ def analyze_root_path_file(file_path: str, dir_names: set[str]) -> list[str]:
         # Check for .parent chains that might resolve to root
         if ".parent.parent.parent" in content or ".parent.parent.parent.parent" in content:
             issues.append(
-                "Check .parent chain length - may resolve to workspace root (P:/) instead of P:/.claude"
+                "Check .parent chain length - may resolve to workspace root (P:\\\\\\) instead of P:\\\\\\.claude"
             )
 
         # Check for common problematic patterns
         for dir_name in dir_names:
             if f'/{dir_name}"' in content or f"/{dir_name}'" in content:
                 issues.append(
-                    f"Path construction creates P:/{dir_name} - should use P:/.claude/{dir_name} instead"
+                    f"Path construction creates P:\\\\\\{dir_name} - should use P:\\\\\\.claude/{dir_name} instead"
                 )
 
     except Exception:
@@ -3575,8 +3575,8 @@ def is_related_violation(violation: dict, source_file: str) -> bool:
 
     try:
         # Check if source is in same module tree
-        rel_violation = violation_path.relative_to(Path("P:/"))
-        rel_source = source_path.relative_to(Path("P:/"))
+        rel_violation = violation_path.relative_to(Path("P:\\\\\\"))
+        rel_source = source_path.relative_to(Path("P:\\\\\\"))
 
         # If they share the first 2 path components, consider them related
         if len(rel_violation.parts) >= 2 and len(rel_source.parts) >= 2:
@@ -3587,15 +3587,15 @@ def is_related_violation(violation: dict, source_file: str) -> bool:
     return False
 
 
-def find_directory_references(dir_path: str, search_root: str = "P:/"):
+def find_directory_references(dir_path: str, search_root: str = "P:\\\\\\"):
     """Search for code that references a directory path.
 
     Checks if any code in the workspace references the given directory.
     This prevents accidental deletion of actively-used directories.
 
     Args:
-        dir_path: Directory path to check (e.g., "P:\\standalone", "P:/claude")
-        search_root: Root directory to search (default: P:/)
+        dir_path: Directory path to check (e.g., "P:\\\\\\\standalone", "P:\\\\\\claude")
+        search_root: Root directory to search (default: P:\\\\\\)
 
     Returns:
         Dict with:
@@ -3611,8 +3611,8 @@ def find_directory_references(dir_path: str, search_root: str = "P:/"):
 
     # Build search patterns for this directory
     patterns = [
-        rf"P:\\\\\{re.escape(dir_name)}\\b",  # P:\dirname (with word boundary)
-        rf"P:/\{re.escape(dir_name)}\\b",  # P:/dirname (forward slashes)
+        rf"P:\\\\\\\\\\{re.escape(dir_name)}\\b",  # P:\\\\\\dirname (with word boundary)
+        rf"P:\\\\\\\{re.escape(dir_name)}\\b",  # P:\\\\\\dirname (forward slashes)
         rf'["\']{re.escape(dir_name)}["\']',  # "dirname" or 'dirname' (string literal)
     ]
 
@@ -3696,15 +3696,15 @@ def find_directory_references(dir_path: str, search_root: str = "P:/"):
     }
 
 
-def find_file_references(file_path: str, search_root: str = "P:/"):
+def find_file_references(file_path: str, search_root: str = "P:\\\\\\"):
     """Search for code that references a file path.
 
     Checks if any code in the workspace references the given file.
     This prevents accidental deletion of actively-used files.
 
     Args:
-        file_path: File path to check (e.g., "P:\\standalone\\config.json", "P:/claude/README.md")
-        search_root: Root directory to search (default: P:/)
+        file_path: File path to check (e.g., "P:\\\\\\\standalone\\config.json", "P:\\\\\\claude/README.md")
+        search_root: Root directory to search (default: P:\\\\\\)
 
     Returns:
         Dict with:
@@ -3722,8 +3722,8 @@ def find_file_references(file_path: str, search_root: str = "P:/"):
 
     # Build search patterns for this file
     patterns = [
-        rf"P:\\\\\{re.escape(file_name)}\\b",  # P:\filename.ext (with word boundary)
-        rf"P:/\{re.escape(file_name)}\\b",  # P:/filename.ext (forward slashes)
+        rf"P:\\\\\\\\\\{re.escape(file_name)}\\b",  # P:\\\\\\filename.ext (with word boundary)
+        rf"P:\\\\\\\{re.escape(file_name)}\\b",  # P:\\\\\\filename.ext (forward slashes)
         rf'["\']{re.escape(file_name)}["\']',  # "filename.ext" or 'filename.ext' (string literal)
         rf'["\']{re.escape(file_stem)}["\']',  # "filename" or 'filename' (without extension)
     ]
@@ -4102,7 +4102,7 @@ NEW FEATURES:
     parser.add_argument(
         "--yes", action="store_true", help="Auto-approve all cleanup actions (use with caution!)"
     )
-    parser.add_argument("--root", default="P:/", help="Root path to validate (default: P:/)")
+    parser.add_argument("--root", default="P:\\\\\\", help="Root path to validate (default: P:\\\\\\)")
     parser.add_argument(
         "--force", action="store_true", help="Bypass import reference checks (use with caution!)"
     )
@@ -4137,7 +4137,7 @@ NEW FEATURES:
     args = parser.parse_args()
 
     # Load claude_directory policy once for reuse
-    policy_path = Path("P:/.claude/hooks/config/directory_policy.json")
+    policy_path = Path("P:\\\\\\.claude/hooks/config/directory_policy.json")
     claude_dir_blocked_patterns = []
     claude_dir_allowed_subdirs = []
     if policy_path.exists():

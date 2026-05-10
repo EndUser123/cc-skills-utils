@@ -2,7 +2,7 @@
 """
 skill_collision_check.py - Detect skill trigger/alias collisions
 
-Run: python P:/.claude/skills/_tools/skill_collision_check.py
+Run: python P:\\\\\\.claude/skills/_tools/skill_collision_check.py
 Returns exit code 0 if healthy, 1 if collisions found
 
 Checks:
@@ -15,7 +15,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-SKILLS_DIR = Path(r"P:/.claude/skills")
+SKILLS_DIR = Path(r"P:\\\\\\.claude/skills")
 ARCHIVE_PATTERNS = ["_archive", "backup", ".venv", "node_modules"]
 
 

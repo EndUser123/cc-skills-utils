@@ -2,7 +2,7 @@
 """
 hook_health_check.py - Analyze hook performance and health from logs
 
-Run: python P:/.claude/skills/_tools/hook_health_check.py
+Run: python P:\\\\\\.claude/skills/_tools/hook_health_check.py
 Returns exit code 0 if healthy, 1 if issues found
 
 Checks:
@@ -40,9 +40,9 @@ KNOWN_RETIRED_HOOKS: frozenset[str] = frozenset(
     }
 )
 
-HOOKS_DIR = Path(r"P:/.claude/hooks")
+HOOKS_DIR = Path(r"P:\\\\\\.claude/hooks")
 LOGS_DIR = HOOKS_DIR / "logs"
-SETTINGS_PATH = Path(r"P:/.claude/settings.json")
+SETTINGS_PATH = Path(r"P:\\\\\\.claude/settings.json")
 
 
 def parse_log_entry(line: str) -> dict | None:

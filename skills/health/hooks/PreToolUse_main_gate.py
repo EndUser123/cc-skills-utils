@@ -29,7 +29,7 @@ def main() -> None:
     # Check if command calls system_health.py
     if "system_health.py" not in command:
         # Allow cd to __csf directory (common setup step)
-        if "cd P:/__csf" in command or "cd P:\\\\__csf" in command:
+        if "cd P:\\\\\\__csf" in command or "cd P:\\\\\\\\\__csf" in command:
             sys.exit(0)  # Allow directory change
 
         # Block incorrect commands with helpful message
@@ -40,7 +40,7 @@ def main() -> None:
         )
         usage_msg = (
             "⛔ /main-hooks requires calling system_health.py.\n\n"
-            "Use: cd P:/__csf && python src/modules/observability/system_health.py [flags]\n\n"
+            "Use: cd P:\\\\\\__csf && python src/modules/observability/system_health.py [flags]\n\n"
             f"Available flags: {flags}"
         )
         print(json.dumps({

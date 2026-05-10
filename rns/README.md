@@ -70,7 +70,7 @@ references/
 **Local installation (skill dev):**
 ```powershell
 # Junction to skill directory (no admin required on Windows)
-New-Item -ItemType Junction -Path "$env:USERPROFILE/.claude/skills/rns" -Target "P:/.claude/skills/rns"
+New-Item -ItemType Junction -Path "$env:USERPROFILE/.claude/skills/rns" -Target "P:\\\\\\.claude/skills/rns"
 ```
 
 **Running tests:**

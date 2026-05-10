@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 # Configuration
-CLAUDE_DIR = Path("P:/.claude")
+CLAUDE_DIR = Path("P:\\\\\\.claude")
 POLICY_FILE = CLAUDE_DIR / "hooks" / "config" / "directory_policy.json"
 DRY_RUN = True  # Safe default - set to False to actually delete
 

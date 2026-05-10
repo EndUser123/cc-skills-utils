@@ -554,7 +554,7 @@ def get_current_transcript_path() -> Path | None:
         # This is the /id method - the definitive source written by SessionStart hook
         wt_session = os.environ.get("WT_SESSION", "")
         if wt_session:
-            identity_path = PPath("P:/.claude/.artifacts") / f"console_{wt_session}" / "identity.json"
+            identity_path = PPath("P:\\\\\\.claude/.artifacts") / f"console_{wt_session}" / "identity.json"
             if identity_path.exists():
                 try:
                     identity = json.loads(identity_path.read_text(encoding="utf-8"))

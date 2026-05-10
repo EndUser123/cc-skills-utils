@@ -17,15 +17,15 @@ import sys
 from pathlib import Path
 
 # Import validator from skill-ship package
-_SKILL_SHIP_DIR = Path("P:/") / ".claude" / "skills" / "skill-ship"
+_SKILL_SHIP_DIR = Path("P:\\\\\\") / ".claude" / "skills" / "skill-ship"
 sys.path.insert(0, str(_SKILL_SHIP_DIR))
 
 from validators.context_size import validate_context_size
 
 # Scan roots
 _ROOTS: list[Path] = [
-    Path("P:/") / ".claude" / "skills",
-    Path("P:/") / ".claude" / "agents",
+    Path("P:\\\\\\") / ".claude" / "skills",
+    Path("P:\\\\\\") / ".claude" / "agents",
     Path.home() / ".claude" / "skills",
     Path.home() / ".claude" / "agents",
 ]
@@ -71,7 +71,7 @@ def main() -> int:
     fail_count = 0
 
     for skill_path, (status, line_count, _findings) in sorted_results:
-        rel = skill_path.replace("P:/", "").replace("\\", "/")
+        rel = skill_path.replace("P:\\\\\\", "").replace("\\", "/")
         if status == "fail":
             print(f"FAIL  {line_count:>4d} lines  {rel}")
             fail_count += 1

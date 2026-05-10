@@ -1,8 +1,8 @@
 # cc-skills-utils
 
-Utility skills for Claude Code — git operations, system health, and workspace management.
+Utility skills for Claude Code — git operations, system health, plugin management, and workspace management.
 
-## Skills (4)
+## Skills (6)
 
 | Skill | Purpose | Home |
 |-------|---------|------|
@@ -10,6 +10,8 @@ Utility skills for Claude Code — git operations, system health, and workspace 
 | /health | Unified System Health, Observability, and Ops | `health/` |
 | /usm | Universal Skill and Plugin Manager | `usm/` |
 | /init | Initialize CLAUDE.md at module/feature root | `init/` |
+| /plugin-installer | Plugin audit, validate, install, sync, add, remove, refresh, bump, status | `plugin-installer/` |
+| /bifrost | Bifrost governance model query with provider taxonomy and cost filtering | `bifrost/` |
 
 ## Artifacts Convention
 
@@ -23,4 +25,4 @@ Skills MUST NOT write state to their own directory or to the package root.
 
 ## Installation
 
-Skills surfaced via junctions in `P:/.claude/skills/`.
+Skills surfaced via junctions in `P:\\\\\\.claude/skills/`.

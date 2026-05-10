@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-SKILLS_DIR = Path(__file__).parent.parent.parent  # P:/.claude/skills
+SKILLS_DIR = Path(__file__).parent.parent.parent  # P:\\\\\\.claude/skills
 
 
 def get_skill_triggers_and_names() -> tuple[set[str], dict[str, str]]:

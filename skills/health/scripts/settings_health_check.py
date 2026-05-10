@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-settings_health_check.py - Detect when P:/.claude/settings.json needs optimization
+settings_health_check.py - Detect when P:\\\\\\.claude/settings.json needs optimization
 
-Run: python P:/.claude/hooks/settings_health_check.py
+Run: python P:\\\\\\.claude/hooks/settings_health_check.py
 Returns exit code 0 if healthy, 1 if issues found
 
 Checks:
@@ -49,16 +49,16 @@ SYSTEM_VARS = {
 }
 
 # Cache file for known env vars (avoid re-scanning)
-CACHE_FILE = Path("P:/.claude/state/settings_vars_cache.json")
+CACHE_FILE = Path("P:\\\\\\.claude/state/settings_vars_cache.json")
 
 
 def load_settings():
-    with open(r"P:/.claude/settings.json") as f:
+    with open(r"P:\\\\\\.claude/settings.json") as f:
         return json.load(f)
 
 
 def get_file_stats():
-    path = Path(r"P:/.claude/settings.json")
+    path = Path(r"P:\\\\\\.claude/settings.json")
     content = path.read_text(encoding="utf-8")
     return {
         "lines": len(content.splitlines()),
@@ -69,7 +69,7 @@ def get_file_stats():
 def find_referenced_vars():
     """Scan active .py files for env var references."""
     referenced = set()
-    for f in glob.glob(r"P:/.claude/**/*.py", recursive=True):
+    for f in glob.glob(r"P:\\\\\\.claude/**/*.py", recursive=True):
         if "_archive" in f or "backup" in f:
             continue
         try:
@@ -218,7 +218,7 @@ def main():
             print("\n⚡ WARNINGS:")
             for w in warnings:
                 print(f"   • {w}")
-        print("\nRun: claude 'optimize P:/.claude/settings.json'")
+        print("\nRun: claude 'optimize P:\\\\\\.claude/settings.json'")
         return 1
     else:
         print(

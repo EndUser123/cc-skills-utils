@@ -2,7 +2,7 @@
 """Parametrized tests covering all 16 SUGGESTION_MAP entries.
 
 Run with:
-    pytest P:/.claude/skills/main/scripts/tests/test_main_health.py -v
+    pytest P:\\\\\\.claude/skills/main/scripts/tests/test_main_health.py -v
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import threading
 
 # Ensure main_health module is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path("P:/.claude/hooks")))
+sys.path.insert(0, str(Path("P:\\\\\\.claude/hooks")))
 
 import main_health as main_health_module  # noqa: E402
 from main_health import _match_suggestions, _SUGGESTION_MAP  # noqa: E402

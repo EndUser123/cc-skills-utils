@@ -1,5 +1,5 @@
 {
   "name": "cc-skills-utils",
-  "description": "Utility skills for Claude Code — discovery, git operations, hooks, and general tooling.",
-  "version": "1.0.0"
+  "description": "Utility skills for Claude Code \u2014 discovery, git operations, plugin management, and general tooling.",
+  "version": "1.1.13"
 }

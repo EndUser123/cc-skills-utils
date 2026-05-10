@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-SKILLS_DIR = Path("P:/.claude/skills")
+SKILLS_DIR = Path("P:\\\\\\.claude/skills")
 EXCLUDE = {"_tools", "_archive"}
 REQUIRED_FIELDS = ["name", "description"]
 RECOMMENDED_FIELDS = ["category", "version", "status"]

@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-test_file = "P:/__csf/src/daemons/unified_semantic_daemon.py"
+test_file = "P:\\\\\\__csf/src/daemons/unified_semantic_daemon.py"
 file_path_obj = Path(test_file).resolve()
 
 print(f"File: {file_path_obj}")

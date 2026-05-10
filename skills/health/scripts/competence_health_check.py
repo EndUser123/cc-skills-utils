@@ -18,8 +18,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Add hooks to path
-# __file__ = P:/.claude/skills/main/scripts/competence_health_check.py
-# parent.parent = P:/.claude/skills/main, ../../hooks = P:/.claude/hooks
+# __file__ = P:\\\\\\.claude/skills/main/scripts/competence_health_check.py
+# parent.parent = P:\\\\\\.claude/skills/main, ../../hooks = P:\\\\\\.claude/hooks
 HOOKS_DIR = Path(__file__).parent.parent / "../../hooks"
 HOOKS_DIR = HOOKS_DIR.resolve()
 sys.path.insert(0, str(HOOKS_DIR))

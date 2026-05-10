@@ -62,8 +62,8 @@ Each package writes a JSON file to the evidence directory:
 ## Evidence File Naming
 
 - **Format:** `<package_name>.json`
-- **Location:** `P:/packages/gitbatch/.evidence/batch_<timestamp>/`
-- **Latest symlink:** `P:/packages/gitbatch/.evidence/latest` -> `batch_<timestamp>/`
+- **Location:** `P:\\\\\\packages/gitbatch/.evidence/batch_<timestamp>/`
+- **Latest symlink:** `P:\\\\\\packages/gitbatch/.evidence/latest` -> `batch_<timestamp>/`
 
 ## Summary Generation
 
