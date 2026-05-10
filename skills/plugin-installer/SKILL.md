@@ -27,9 +27,19 @@ When invoked without an action, run the complete check-fix-verify workflow.
    ```
    This scans ALL source packages (not just marketplace junctions), reports:
    - **Missing marketplace junctions** → suggests `/cc-skills-utils:plugin-installer add <name>`
-   - **Source drift** → `robocopy /MIR` syncs cache from source
+   - **Source drift** → syncs source to cache (source wins on conflicts, see below)
    - **Stale version dirs** → deleted from cache
-   - **Cache-only files** → warned but preserved
+   - **Conflicts** → reported, neither side overwritten (resolve manually)
+
+## Bidirectional Sync Rules
+
+Source and cache are **equal peers** — no automatic winner based on mtime. When the same file exists in both locations with different content:
+
+- **Same file, different content** → skip, report conflict. I (the LLM running this skill) will read both versions and apply the better one inline.
+- **File only in source** → copy to cache
+- **File only in cache** → skip (cache-only files are not copied to source; they are preserved in cache but source is not modified)
+
+This means editing either location directly is safe — neither will silently overwrite the other.
 
 2. **Sync marketplace index**:
    ```bash

@@ -416,7 +416,7 @@ def bidir_sync(source: Path, cache: Path) -> dict:
     Returns dict with stats: {src_to_cache, cache_to_src, skipped, errors}.
     """
     import shutil
-    stats = {"src_to_cache": 0, "cache_to_src": 0, "skipped": 0, "errors": []}
+    stats = {"src_to_cache": 0, "cache_to_src": 0, "skipped": 0, "conflicts": [], "errors": []}
 
     if not source.exists() or not cache.exists():
         stats["errors"].append(f"Missing directory: source={source.exists()}, cache={cache.exists()}")
@@ -446,30 +446,20 @@ def bidir_sync(source: Path, cache: Path) -> dict:
         cache_file = cache_files.get(rel)
 
         if src_file and cache_file:
-            # Both exist — compare content, then mtime
+            # Both exist — compare content
             try:
                 if src_file.read_bytes() == cache_file.read_bytes():
                     continue  # identical, skip
             except OSError:
                 pass
 
-            # Content differs — use mtime to decide direction
-            try:
-                src_mt = src_file.stat().st_mtime
-                cache_mt = cache_file.stat().st_mtime
-            except OSError:
-                continue
-
+            # Content differs — skip, report conflict. I (the LLM) will read both
+            # and apply the better version inline. No automatic winner based on mtime.
+            stats["conflicts"].append(str(rel))
             dest_dir = cache_file.parent
             dest_dir.mkdir(parents=True, exist_ok=True)
-            if src_mt >= cache_mt:
-                shutil.copy2(str(src_file), str(cache_file))
-                stats["src_to_cache"] += 1
-            else:
-                dest = source / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(str(cache_file), str(dest))
-                stats["cache_to_src"] += 1
+            # Preserve both — copy neither direction, just mark conflict
+            continue
 
         elif src_file and not cache_file:
             # Only in source — copy to cache
@@ -482,14 +472,9 @@ def bidir_sync(source: Path, cache: Path) -> dict:
                 stats["errors"].append(f"copy src→cache {rel}: {e}")
 
         elif cache_file and not src_file:
-            # Only in cache — copy to source (preserves cache edits)
-            dest = source / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.copy2(str(cache_file), str(dest))
-                stats["cache_to_src"] += 1
-            except OSError as e:
-                stats["errors"].append(f"copy cache→src {rel}: {e}")
+            # Only in cache — preserve in cache, don't copy to source
+            # (cache-only files are not source changes, they are cache artifacts)
+            stats["skipped"] += 1
 
     return stats
 
@@ -1142,8 +1127,17 @@ def main(argv: list[str]) -> int:
                         if sync_stats["errors"]:
                             for err in sync_stats["errors"]:
                                 print(f"  {C_RED}Sync error {pkg}: {err}{C_RESET}")
-                        if sync_stats["src_to_cache"] or sync_stats["cache_to_src"]:
-                            print(f"  {C_GREEN}Synced: {pkg} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
+                        parts = []
+                        if sync_stats["src_to_cache"]:
+                            parts.append(f"src→cache: {sync_stats['src_to_cache']}")
+                        if sync_stats["cache_to_src"]:
+                            parts.append(f"cache→src: {sync_stats['cache_to_src']}")
+                        if sync_stats["conflicts"]:
+                            parts.append(f"conflicts: {len(sync_stats['conflicts'])} (review manually)")
+                        if sync_stats["skipped"]:
+                            parts.append(f"cache-only skipped: {sync_stats['skipped']}")
+                        if parts:
+                            print(f"  {C_GREEN}Synced: {pkg} ({', '.join(parts)}){C_RESET}")
                             synced.append(pkg)
                         else:
                             print(f"  {C_GREEN}Synced: {pkg} (no changes needed){C_RESET}")
@@ -1397,22 +1391,24 @@ def main(argv: list[str]) -> int:
                     if sync_stats["errors"]:
                         for err in sync_stats["errors"]:
                             print(f"  {C_RED}Sync error {pkg}: {err}{C_RESET}")
-                    if sync_stats["src_to_cache"] or sync_stats["cache_to_src"]:
-                        print(f"  {C_GREEN}Synced: {pkg} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
+                    parts = []
+                    if sync_stats["src_to_cache"]:
+                        parts.append(f"src→cache: {sync_stats['src_to_cache']}")
+                    if sync_stats["cache_to_src"]:
+                        parts.append(f"cache→src: {sync_stats['cache_to_src']}")
+                    if sync_stats["conflicts"]:
+                        parts.append(f"conflicts: {len(sync_stats['conflicts'])} (review manually)")
+                    if sync_stats["skipped"]:
+                        parts.append(f"cache-only skipped: {sync_stats['skipped']}")
+                    if parts:
+                        print(f"  {C_GREEN}Synced: {pkg} ({', '.join(parts)}){C_RESET}")
                         synced.append(pkg)
                     else:
                         print(f"  {C_GREEN}Synced: {pkg} (no changes needed){C_RESET}")
                         synced.append(pkg)
             elif t == "cache_only":
-                # Bidirectional sync will handle cache-only files by copying them to source
-                src = Path(f"P:\\\\packages/{pkg}")
-                version_dir = cache_root / pkg / f["cache_version"]
-                if src.exists() and version_dir.exists():
-                    sync_stats = bidir_sync(src, version_dir)
-                    if sync_stats["cache_to_src"] > 0:
-                        print(f"  {C_GREEN}Rescued cache-only files: {pkg} ({sync_stats['cache_to_src']} file(s) copied to source){C_RESET}")
-                    else:
-                        print(f"  {C_YELLOW}Cache-only files in {pkg}: {f['cache_only_count']} file(s) — restore from git history or delete manually{C_RESET}")
+                # Cache-only files are preserved in cache, not copied to source
+                print(f"  {C_YELLOW}Cache-only files in {pkg}: {f['cache_only_count']} file(s) — preserved in cache{C_RESET}")
 
         if stale_deleted:
             print(f"\n{C_GREEN}Deleted {len(stale_deleted)} stale version dir(s): {stale_deleted}{C_RESET}")
