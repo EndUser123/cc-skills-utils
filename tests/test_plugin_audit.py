@@ -43,17 +43,24 @@ def _make_cache(cache_root: Path, name: str, version: str, content: str = "# mys
     return cache
 
 
-def _patch_expanduser(cache_root: Path):
-    """Patch os.path.expanduser to redirect ~/.claude/plugins/cache/local to cache_root."""
+def _patch_expanduser(cache_root: Path, installed_path: Path | None = None):
+    """Patch os.path.expanduser to redirect plugin cache paths to test fixtures.
+
+    Redirects:
+      ~/.claude/plugins/cache/local  → cache_root
+      ~/.claude/plugins/installed_plugins.json → installed_path (if provided)
+    """
     original = os.path.expanduser
 
     def _expanduser(path: str) -> str:
         if path == "~/.claude/plugins/cache/local":
             return str(cache_root)
+        if installed_path is not None and path == "~/.claude/plugins/installed_plugins.json":
+            return str(installed_path)
         return original(path)
 
-    # Patch in the module under test AND in os.path globally (module caches os.path)
-    return patch.object(os.path, "expanduser", side_effect=_expanduser)
+    # Patch on the module's bound os reference so the module's import picks it up
+    return patch.object(_mod.os.path, "expanduser", _expanduser)
 
 
 class TestBidirSync:
@@ -68,9 +75,9 @@ class TestBidirSync:
         (cache / "f.txt").write_text("hello")
         stats = bidir_sync(src, cache)
         assert stats["src_to_cache"] == 0
-        assert stats["cache_to_src"] == 0
+        assert stats["skipped"] == 0
 
-    def test_newer_source_syncs_to_cache(self, tmp_path):
+    def test_source_wins_over_older_cache(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
         cache = tmp_path / "cache"
@@ -80,21 +87,21 @@ class TestBidirSync:
         (src / "f.txt").write_text("new")
         stats = bidir_sync(src, cache)
         assert stats["src_to_cache"] == 1
-        assert stats["cache_to_src"] == 0
         assert (cache / "f.txt").read_text() == "new"
+        assert "f.txt" in stats["conflicts"]
 
-    def test_newer_cache_syncs_to_source(self, tmp_path):
+    def test_source_wins_even_when_cache_newer(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
         cache = tmp_path / "cache"
         cache.mkdir()
-        (src / "f.txt").write_text("old")
+        (src / "f.txt").write_text("old-src")
         time.sleep(0.05)
         (cache / "f.txt").write_text("cache-edit")
         stats = bidir_sync(src, cache)
-        assert stats["src_to_cache"] == 0
-        assert stats["cache_to_src"] == 1
-        assert (src / "f.txt").read_text() == "cache-edit"
+        assert stats["src_to_cache"] == 1
+        assert (cache / "f.txt").read_text() == "old-src"
+        assert "f.txt" in stats["conflicts"]
 
     def test_source_only_copies_to_cache(self, tmp_path):
         src = tmp_path / "src"
@@ -106,15 +113,15 @@ class TestBidirSync:
         assert stats["src_to_cache"] == 1
         assert (cache / "new.txt").read_text() == "new file"
 
-    def test_cache_only_copies_to_source(self, tmp_path):
+    def test_cache_only_skipped(self, tmp_path):
         src = tmp_path / "src"
         src.mkdir()
         cache = tmp_path / "cache"
         cache.mkdir()
-        (cache / "rescue.txt").write_text("cache-only work")
+        (cache / "cache_rescue.txt").write_text("cache-only work")
         stats = bidir_sync(src, cache)
-        assert stats["cache_to_src"] == 1
-        assert (src / "rescue.txt").read_text() == "cache-only work"
+        assert stats["skipped"] == 1
+        assert not (src / "cache_rescue.txt").exists()
 
     def test_skips_excluded_dirs(self, tmp_path):
         src = tmp_path / "src"
@@ -252,8 +259,8 @@ class TestPackagesRootAutoFix:
         cached_skill = cache_dir / "skills" / "myskill" / "SKILL.md"
         assert "updated" in cached_skill.read_text()
 
-    def test_cache_to_source_rescue(self, tmp_path):
-        """Cache edits (newer mtime) should be synced back to source."""
+    def test_source_overwrites_newer_cache(self, tmp_path):
+        """Source wins even when cache has newer mtime — no cache-to-source rescue."""
         packages, mp, cache_root = self._setup(tmp_path, version="1.0.0")
         pkg = packages / "test-pkg"
         # Create cache AFTER source with different content — cache is newer
@@ -266,8 +273,12 @@ class TestPackagesRootAutoFix:
                 "--auto-fix", "--no-fix-paths",
             ])
 
+        # Source is canonical — must remain unchanged
         src_skill = pkg / "skills" / "myskill" / "SKILL.md"
-        assert "cache-edit" in src_skill.read_text()
+        assert "# myskill\n" == src_skill.read_text()
+        # Cache should be overwritten with source content
+        cache_skill = cache_dir / "skills" / "myskill" / "SKILL.md"
+        assert "# myskill\n" == cache_skill.read_text()
 
 
 class TestBumpCacheManagement:
@@ -321,3 +332,39 @@ class TestBumpCacheManagement:
         manifest_dir = mp / "plugins" / "test-pkg" / ".claude-plugin"
         updated = json.loads((manifest_dir / "plugin.json").read_text())
         assert updated["version"] == "2.0.1"
+
+    def test_bump_updates_installPath_in_installed_plugins_json(self, tmp_path):
+        """After bump, installPath in installed_plugins.json must point to new version dir."""
+        mp, cache_root = self._setup_marketplace(tmp_path, version="1.0.0")
+        _make_cache(cache_root, "test-pkg", "1.0.0")
+
+        # Pre-populate installed_plugins.json with old installPath
+        installed_path = tmp_path / "installed_plugins.json"
+        installed_path.write_text(json.dumps({
+            "version": 2,
+            "plugins": {
+                "test-pkg@local": [{
+                    "scope": "user",
+                    "installPath": str(cache_root / "test-pkg" / "1.0.0"),
+                    "version": "1.0.0",
+                    "installedAt": "2026-01-01T00:00:00.000Z",
+                    "lastUpdated": "2026-01-01T00:00:00.000Z",
+                    "gitCommitSha": "abc123"
+                }]
+            }
+        }))
+
+        with _patch_expanduser(cache_root, installed_path):
+            ret = main([
+                "prog", "--marketplace-root", str(mp),
+                "--bump", "test-pkg",
+            ])
+
+        assert ret == 0
+
+        # Verify installPath was updated to new version
+        installed = json.loads(installed_path.read_text())
+        entry = installed["plugins"]["test-pkg@local"][0]
+        assert entry["version"] == "1.0.1", f"version should be 1.0.1, got {entry['version']}"
+        assert str(cache_root / "test-pkg" / "1.0.1") in entry["installPath"], \
+            f"installPath should point to 1.0.1, got {entry['installPath']}"

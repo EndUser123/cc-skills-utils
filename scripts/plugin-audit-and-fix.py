@@ -241,20 +241,20 @@ def audit_plugins(plugins_dir: Path, marketplace_root: str, plugin_filter: Optio
             if fpath.is_file() and any(fpath.suffix == ext for ext in [".data.json", ".meta.json", ".state.json"]):
                 result["warnings"].append(f"State file '{fpath.name}' in plugin root (should use P:\\\\.claude/.artifacts/<terminal_id>/)")
 
-        # Check for .claude/ anywhere in the plugin tree (except .claude-plugin/ manifest dir)
+        # Check for .claude/ at depth 1 in the plugin tree (except .claude-plugin/ manifest dir)
         # Workspace-typical entries are legitimate for packages that serve as dev workspaces.
         _workspace_entries = {"hooks", ".artifacts", "settings.local.json", "CLAUDE.md"}
-        for bad_claude in plugin.rglob(".claude"):
-            # .claude-plugin/ is the legitimate plugin manifest directory — skip it
-            if str(bad_claude).endswith(".claude-plugin") or bad_claude.name == ".claude-plugin":
+        for child in plugin.iterdir():
+            if not child.is_dir() or child.name == ".claude-plugin":
                 continue
-            if not bad_claude.is_dir():
+            bad_claude = child / ".claude"
+            if not bad_claude.exists() or not bad_claude.is_dir():
                 continue
-            rel = bad_claude.relative_to(plugin)
             entries = [e.name for e in bad_claude.iterdir()]
             non_workspace = [e for e in entries if e not in _workspace_entries]
             if not non_workspace:
                 continue
+            rel = bad_claude.relative_to(plugin)
             result["errors"].append(
                 f".claude/ at {rel} (should be removed; {len(entries)} entries: {entries[:3]}{'...' if len(entries) > 3 else ''})"
             )
@@ -302,6 +302,8 @@ def _scan_paths(file_path: Path, plugin_name: str) -> list[str]:
         r"/Users/[^'\"]+",       # macOS paths
         r"/Volumes/[^'\"]+",    # macOS volumes
         r"P:\\\\\\\[^'\"]+",        # Explicit P: drives
+        r"parents\[1\].*(?:/|\").*\.claude.*state",  # parents[1] + .claude/state violation
+        r'Path\("\.claude[/"]',  # Relative Path(".claude/...") in skill contexts
     ]
     for pattern in patterns:
         source = re.sub(r"^\./", "", content, flags=re.MULTILINE)
@@ -323,6 +325,156 @@ def scan_source_paths(plugins_dir: Path) -> list[dict]:
                 for issue in issues:
                     findings.append({"plugin": plugin.name, "file": str(fpath.relative_to(plugin)), "issue": issue})
     return findings
+
+def _parse_yaml_frontmatter(content: str) -> tuple[Optional[dict], str]:
+    """Parse YAML frontmatter from file content. Returns (frontmatter_dict, body)."""
+    match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+    if not match:
+        return None, content
+    fm_text = match.group(1)
+    body = content[match.end():]
+    result: dict = {}
+    for line in fm_text.splitlines():
+        line = line.rstrip()
+        if not line or line.startswith("#"):
+            continue
+        if ": " in line:
+            key, val = line.split(": ", 1)
+        elif line.endswith(":"):
+            key = line[:-1]
+            val = ""
+        else:
+            continue
+        result[key.strip()] = val.strip()
+    return result, body
+
+
+def _save_skill_md(path: Path, frontmatter: dict, body: str) -> bool:
+    """Rewrite SKILL.md with updated frontmatter, preserving body and formatting."""
+    try:
+        fm_lines = []
+        for k, v in frontmatter.items():
+            if v:
+                fm_lines.append(f"{k}: {v}")
+            else:
+                fm_lines.append(f"{k}:")
+        fm_block = "---\n" + "\n".join(fm_lines) + "\n---\n"
+        path.write_text(fm_block + body, encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def audit_skill_frontmatter(plugins_dir: Path, plugin_filter: Optional[str] = None) -> list[dict]:
+    """Audit SKILL.md frontmatter for name/directory mismatches that prevent slash command registration.
+
+    Claude Code uses the 'name' field in SKILL.md frontmatter as the slash command name.
+    If 'name: universal-triage' but the directory is 'skills/ut/', the slash command /ut won't
+    appear — it will be /universal-triage instead. This function detects that pattern.
+    """
+    findings: list[dict] = []
+    if not plugins_dir.exists():
+        return findings
+
+    for plugin in sorted(plugins_dir.iterdir()):
+        if plugin.name.startswith(".") or not plugin.is_dir():
+            continue
+        if plugin_filter and plugin.name != plugin_filter:
+            continue
+
+        skills_dir = plugin / "skills"
+        if not skills_dir.is_dir():
+            continue
+
+        for skill_dir in skills_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.exists():
+                continue
+
+            try:
+                content = skill_md.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+
+            fm, _ = _parse_yaml_frontmatter(content)
+            if fm is None:
+                continue
+
+            name_field = fm.get("name", "")
+            if not name_field:
+                findings.append({
+                    "type": "missing_name_field",
+                    "plugin": plugin.name,
+                    "skill": skill_dir.name,
+                    "file": str(skill_md.relative_to(plugins_dir)),
+                    "issue": f"skills/{skill_dir.name}/SKILL.md has no 'name' frontmatter field — slash command won't register",
+                })
+                continue
+
+            if name_field != skill_dir.name:
+                findings.append({
+                    "type": "name_mismatch",
+                    "plugin": plugin.name,
+                    "skill": skill_dir.name,
+                    "file": str(skill_md.relative_to(plugins_dir)),
+                    "frontmatter_name": name_field,
+                    "directory_name": skill_dir.name,
+                    "issue": (
+                        f"SKILL.md has name='{name_field}' but directory is '{skill_dir.name}/' "
+                        f"— slash command /{name_field} will not appear as /{skill_dir.name}"
+                    ),
+                    "fix": f"Set name: {skill_dir.name} to match directory",
+                })
+
+    return findings
+
+
+def fix_skill_frontmatter(plugins_dir: Path, plugin_filter: Optional[str] = None) -> list[dict]:
+    """Auto-fix SKILL.md frontmatter name mismatches. Sets 'name' to match directory name."""
+    results: list[dict] = []
+    if not plugins_dir.exists():
+        return results
+
+    audit_results = audit_skill_frontmatter(plugins_dir, plugin_filter)
+    # Only fix name_mismatch — missing_name_field is a different category
+    to_fix = [f for f in audit_results if f["type"] == "name_mismatch"]
+
+    # Group by plugin
+    plugin_groups: dict[str, list[dict]] = {}
+    for f in to_fix:
+        plugin_groups.setdefault(f["plugin"], []).append(f)
+
+    for pname, fixes in sorted(plugin_groups.items()):
+        result = {"plugin": pname, "actions": [], "fixed": False}
+        for f in fixes:
+            skill_md_path = plugins_dir / pname / "skills" / f["skill"] / "SKILL.md"
+            if not skill_md_path.exists():
+                continue
+            try:
+                content = skill_md_path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+
+            fm, body = _parse_yaml_frontmatter(content)
+            if fm is None:
+                continue
+
+            old_name = fm.get("name", "")
+            fm["name"] = f["directory_name"]
+            if _save_skill_md(skill_md_path, fm, body):
+                result["actions"].append(
+                    f"Fixed skills/{f['skill']}/SKILL.md: name '{old_name}' → '{f['directory_name']}'"
+                )
+                result["fixed"] = True
+            else:
+                result["actions"].append(f"Failed to write skills/{f['skill']}/SKILL.md")
+
+        results.append(result)
+
+    return results
+
 
 def audit_orphan_skill_junctions(plugins_dir: Path) -> list[dict]:
     """Detect marketplace entries that are junctions to skills already inside a cluster package.
@@ -407,13 +559,14 @@ _BIDIR_SKIP_EXTS = {".pyc", ".pyo"}
 
 
 def bidir_sync(source: Path, cache: Path) -> dict:
-    """Bidirectional sync between source and cache directories.
+    """Source-to-cache sync for junction-based plugins.
 
-    For each file that differs, keeps whichever copy has the newer mtime.
-    Files only in source are copied to cache. Files only in cache are
-    copied to source (preserves work done directly in cache).
+    Source is canonical (junctions serve from source). Cache is install mirror.
+    - Same file, different content → source wins, conflict logged
+    - File only in source → copy to cache
+    - File only in cache → skip (stale, deleted from source)
 
-    Returns dict with stats: {src_to_cache, cache_to_src, skipped, errors}.
+    Returns dict with stats: {src_to_cache, skipped, conflicts, errors}.
     """
     import shutil
     stats = {"src_to_cache": 0, "cache_to_src": 0, "skipped": 0, "conflicts": [], "errors": []}
@@ -453,13 +606,16 @@ def bidir_sync(source: Path, cache: Path) -> dict:
             except OSError:
                 pass
 
-            # Content differs — skip, report conflict. I (the LLM) will read both
-            # and apply the better version inline. No automatic winner based on mtime.
+            # Content differs — source is canonical (junctions serve from source).
+            # Report conflict but always copy source → cache.
             stats["conflicts"].append(str(rel))
-            dest_dir = cache_file.parent
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            # Preserve both — copy neither direction, just mark conflict
-            continue
+            dest = cache / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(str(src_file), str(dest))
+                stats["src_to_cache"] += 1
+            except OSError as e:
+                stats["errors"].append(f"copy src→cache {rel}: {e}")
 
         elif src_file and not cache_file:
             # Only in source — copy to cache
@@ -472,8 +628,7 @@ def bidir_sync(source: Path, cache: Path) -> dict:
                 stats["errors"].append(f"copy src→cache {rel}: {e}")
 
         elif cache_file and not src_file:
-            # Only in cache — preserve in cache, don't copy to source
-            # (cache-only files are not source changes, they are cache artifacts)
+            # Only in cache — skip (source is canonical; deleted from source = stale)
             stats["skipped"] += 1
 
     return stats
@@ -696,24 +851,6 @@ def auto_fix_plugins(plugins_dir: Path, delete_hooks: bool) -> list[dict]:
                     result["actions"].append("Created .claude-plugin/marketplace.json from root marketplace.json")
                     result["fixed"] = True
 
-            # Fix: .venv auto-add to .gitignore
-            venv_path = plugin / ".venv"
-            if venv_path.exists() and venv_path.is_dir():
-                gi = plugin / ".gitignore"
-                existing = set()
-                if gi.exists():
-                    existing = {l.strip() for l in gi.read_text(errors="ignore").splitlines() if l.strip() and not l.startswith("#")}
-                if ".venv" not in existing and ".venv/" not in existing:
-                    try:
-                        with open(gi, "a", encoding="utf-8") as f:
-                            if existing:
-                                f.write("\n")
-                            f.write(".venv/\n")
-                        result["actions"].append("Added .venv/ to .gitignore")
-                        result["fixed"] = True
-                    except OSError:
-                        pass
-
             # Fix: .claude/ at plugin root — remove if empty, flag if suspicious
             claude_root = plugin / ".claude"
             if claude_root.exists() and claude_root.is_dir():
@@ -784,8 +921,15 @@ def auto_fix_git_artifacts(plugins_dir: Path) -> list[dict]:
     results = []
     if not plugins_dir.exists():
         return results
-    # .git always exists in repos; .pytest_cache is the only other artifact we auto-fix
-    auto_fix_artifacts = [".pytest_cache"]
+    # .git always exists in repos; include all common build artifacts
+    auto_fix_artifacts = {
+        "__pycache__",
+        ".pytest_cache",
+        "node_modules",
+        "venv",
+        ".venv",
+        "*.pyc",
+    }
     for plugin in sorted(plugins_dir.iterdir()):
         if plugin.name.startswith("."):
             continue
@@ -799,11 +943,19 @@ def auto_fix_git_artifacts(plugins_dir: Path) -> list[dict]:
             artifact_path = plugin / artifact
             if not artifact_path.exists():
                 continue
-            if artifact in gitignore_entries or artifact + "/" in gitignore_entries:
+            if artifact in gitignore_entries:
+                continue
+            # For directory-like artifacts, also check with trailing slash
+            if artifact.endswith("/") or artifact.endswith("]") or "*" in artifact:
+                # glob pattern or already-slashed entry — exact match only
+                pass
+            elif (artifact + "/") in gitignore_entries:
                 continue
             try:
                 with open(gitignore_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n{artifact}\n")
+                    # Globs and patterns write as-is; directories get trailing slash
+                    entry = artifact if "*" in artifact or "[" in artifact else artifact + "/"
+                    f.write(f"\n{entry}\n")
                 result["actions"].append(f"Added {artifact} to .gitignore")
                 result["fixed"] = True
             except OSError as e:
@@ -972,8 +1124,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--marketplace-root", default=None, help="Marketplace root directory")
     parser.add_argument("--auto-fix", action="store_true", help="Auto-fix issues")
     parser.add_argument("--delete-hooks", action="store_true", help="Delete hooks.json (use with --auto-fix)")
-    parser.add_argument("--scan-paths", action="store_true", help="Scan for hardcoded paths")
-    parser.add_argument("--scan-name-conflicts", action="store_true", help="Scan for conflicting skill/command names across global and local dirs")
+    parser.add_argument("--scan-paths", action="store_true", help="[DEPRECATED] scan-paths is now default in --packages-root mode (use --no-scan-paths to disable)")
+    parser.add_argument("--no-scan-paths", action="store_true", help="Skip hardcoded path scan (default: off)")
+    parser.add_argument("--scan-name-conflicts", action="store_true", help="[DEPRECATED] name-conflict scan is now default (use --no-scan-name-conflicts to disable)")
+    parser.add_argument("--no-scan-name-conflicts", action="store_true", help="Skip name conflict scan (default: off)")
+    parser.add_argument("--summarize", action="store_true", help="Run summarize_audit.py after audit completes (implies --auto-fix --packages-root)")
     parser.add_argument("--plugins", metavar="NAME", help="Filter to a specific plugin name")
     parser.add_argument("--validate", action="store_true", help="Run 'claude plugin validate' on each plugin")
     parser.add_argument("--drift", action="store_true", help="Detect source-vs-cache drift using content hash (no version comparison)")
@@ -1051,6 +1206,36 @@ def main(argv: list[str]) -> int:
                 for w in r["warnings"]: print(f"  [WARNING] {r['plugin']}: {w}")
         else:
             print(f"{C_GREEN}All source plugins OK.{C_RESET}")
+
+        # Skill frontmatter audit: name field vs directory name
+        print("\nChecking SKILL.md frontmatter name fields...")
+        skill_fm_findings = audit_skill_frontmatter(packages_dir)
+        plugin_names = {p.name for p in plugin_dirs}
+        skill_fm_findings = [f for f in skill_fm_findings if f["plugin"] in plugin_names]
+        missing_name = sum(1 for f in skill_fm_findings if f["type"] == "missing_name_field")
+        name_mismatch = sum(1 for f in skill_fm_findings if f["type"] == "name_mismatch")
+        if skill_fm_findings:
+            print(f"{C_RED}Found {missing_name} missing name field, {name_mismatch} name mismatch(s):{C_RESET}")
+            for f in skill_fm_findings:
+                t = f["type"]
+                if t == "missing_name_field":
+                    print(f"  [{f['plugin']}] {f['skill']}: {f['issue']}")
+                elif t == "name_mismatch":
+                    print(f"  [{f['plugin']}] {f['skill']}: name='{f['frontmatter_name']}' vs dir='{f['directory_name']}' — {f['fix']}")
+        else:
+            print(f"{C_GREEN}All SKILL.md name fields match their directories.{C_RESET}")
+
+        # Auto-fix skill frontmatter
+        if args.auto_fix and skill_fm_findings:
+            fix_results = fix_skill_frontmatter(packages_dir)
+            fixed_count = sum(1 for r in fix_results if r.get("fixed"))
+            if fixed_count:
+                print(f"{C_GREEN}Fixed SKILL.md name fields in {fixed_count} skill(s).{C_RESET}")
+                for r in fix_results:
+                    if not r.get("fixed"):
+                        continue
+                    for action in r["actions"]:
+                        print(f"  [{r['plugin']}] {action}")
 
         # Drift check
         print("\nChecking source vs cache drift...")
@@ -1196,11 +1381,27 @@ def main(argv: list[str]) -> int:
         # Post-bump: create new cache dir, remove old version dir
         import shutil
         import subprocess
+        from datetime import datetime, timezone
         cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
         pkg_name = args.bump
         old_ver = bump_result["old_version"]
         new_ver = bump_result["new_version"]
         cache_dir = cache_root / pkg_name
+        plugin_key = f"{pkg_name}@local"
+
+        # 1. Update installed_plugins.json so Claude Code knows about new version
+        installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
+        if installed_path.exists():
+            ok, installed_data = _load_json(installed_path)
+            if ok and "plugins" in installed_data:
+                if plugin_key in installed_data["plugins"]:
+                    installed_data["plugins"][plugin_key][0]["version"] = new_ver
+                    installed_data["plugins"][plugin_key][0]["installPath"] = str(cache_dir / new_ver)
+                    installed_data["plugins"][plugin_key][0]["lastUpdated"] = datetime.now(
+                        timezone.utc
+                    ).isoformat().replace("+00:00", "Z").replace("Z", "+00:00")
+                    _save_json(installed_path, installed_data)
+                    print(f"  {C_GREEN}Updated installed_plugins.json: {pkg_name}@{old_ver} → {new_ver} at {cache_dir / new_ver}{C_RESET}")
 
         if cache_dir.exists():
             # Create new version dir by syncing from source
@@ -1297,6 +1498,22 @@ def main(argv: list[str]) -> int:
     else:
         print(f"{C_GREEN}No orphan skill junctions.{C_RESET}")
 
+    # Check SKILL.md frontmatter name fields
+    print("\nChecking SKILL.md frontmatter name fields...")
+    skill_fm_findings = audit_skill_frontmatter(plugins_dir, plugin_filter=args.plugins)
+    missing_name = sum(1 for f in skill_fm_findings if f["type"] == "missing_name_field")
+    name_mismatch_count = sum(1 for f in skill_fm_findings if f["type"] == "name_mismatch")
+    if skill_fm_findings:
+        print(f"{C_RED}Found {missing_name} missing name field, {name_mismatch_count} name mismatch(s):{C_RESET}")
+        for f in skill_fm_findings:
+            t = f["type"]
+            if t == "missing_name_field":
+                print(f"  [{f['plugin']}] {f['skill']}: {f['issue']}")
+            elif t == "name_mismatch":
+                print(f"  [{f['plugin']}] {f['skill']}: name='{f['frontmatter_name']}' vs dir='{f['directory_name']}' — {f['fix']}")
+    else:
+        print(f"{C_GREEN}All SKILL.md name fields match their directories.{C_RESET}")
+
     # Check for source/cache drift
     print("\nChecking source vs cache drift...")
     drift_findings = audit_source_cache_drift(plugins_dir)
@@ -1359,6 +1576,18 @@ def main(argv: list[str]) -> int:
                 except OSError as e:
                     print(f"  {C_RED}Failed to remove {f['marketplace_entry']}: {e}{C_RESET}")
 
+        # Auto-fix: SKILL.md frontmatter name mismatches
+        if args.auto_fix and skill_fm_findings:
+            fix_results = fix_skill_frontmatter(plugins_dir, plugin_filter=args.plugins)
+            fixed_count = sum(1 for r in fix_results if r.get("fixed"))
+            if fixed_count:
+                print(f"{C_GREEN}Fixed SKILL.md name fields in {fixed_count} skill(s).{C_RESET}")
+                for r in fix_results:
+                    if not r.get("fixed"):
+                        continue
+                    for action in r["actions"]:
+                        print(f"  [{r['plugin']}] {action}")
+
         # Auto-fix: stale version dirs + source sync
         # Re-check drift AFTER path fixes — path fixes modify source, so the
         # original drift_findings are stale. Without this, robocopy syncs
@@ -1418,6 +1647,22 @@ def main(argv: list[str]) -> int:
         print(f"  2. Run with --scan-name-conflicts to detect conflicting skill/command names")
         print(f"  3. Run with --validate to validate all plugins")
         print(f"  4. Update marketplace: {C_CYAN}/plugin marketplace update local{C_RESET}")
+
+    # --summarize is default-on for packages-root mode (makes output actionable)
+    if args.summarize is None:
+        args.summarize = bool(args.packages_root)
+
+    if args.summarize:
+        import subprocess as _subprocess
+        r = _subprocess.run(
+            ["python3", str(Path(__file__).parent / "summarize_audit.py")],
+            capture_output=True, text=True,
+        )
+        if r.stdout:
+            print(r.stdout)
+        if r.returncode != 0 and r.stderr:
+            print(r.stderr, file=sys.stderr)
+
     return error_count
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
