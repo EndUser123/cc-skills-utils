@@ -21,23 +21,23 @@ Query the Bifrost governance SQLite database with structured filtering and provi
 **When /bifrost is invoked, execute the filter script with the provided arguments:**
 
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py [args]
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py [args]
 ```
 
 **Common invocations:**
 
 ```bash
 # Default: free-key + subscription chat models >= 128k (cost ignored for known providers)
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py
 
 # List all providers
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --list-providers
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --list-providers
 
 # OpenRouter free models only
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --provider openrouter --free-only
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --provider openrouter --free-only
 
 # Embedding models
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --mode embed
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --mode embed
 ```
 
 ## DB Location
@@ -85,36 +85,36 @@ Standard cost filtering applies:
 
 ### Default: Free/Subscription chat models >= 128k context
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py
 ```
 
 ### Filter by criteria
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
   --mode chat --min-context 131072 --free-above-subscription
 ```
 
 ### List all providers
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --list-providers
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --list-providers
 ```
 
 ### Provider-specific query
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
   --provider nvidia --mode chat --min-context 131072
 ```
 
 ### OpenRouter free only
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
   --provider openrouter --mode chat --min-context 131072 --free-only \
   --exclude-vendors moonshotai,minimax,z.ai,bytedance
 ```
 
 ### All modes, no cost filter (inventory)
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --list-all
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --list-all
 ```
 
 ## Arguments
@@ -136,22 +136,22 @@ python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py 
 
 **"What free chat models >= 128k do I have access to?"**
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py
 ```
 
 **"Show me all embedding models"**
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --mode embed
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --mode embed
 ```
 
 **"What's available from Nvidia?"**
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --provider nvidia
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --provider nvidia
 ```
 
 **"Show me only the free OpenRouter models"**
 ```bash
-python P:\\\\\\packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
+python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py \
   --provider openrouter --free-only --min-context 131072
 ```
 

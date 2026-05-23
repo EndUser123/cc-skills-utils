@@ -203,6 +203,20 @@ def audit_plugins(plugins_dir: Path, marketplace_root: str, plugin_filter: Optio
                         bad_dir = skill_item / bad
                         if bad_dir.exists() and bad_dir.is_dir():
                             result["errors"].append(f"{bad}/ inside skills/{skill_item.name}/ (should be at plugin root)")
+        # Check for duplicate hooks field in plugin.json
+        # Claude Code auto-discovers hooks/hooks.json; the "hooks" field in plugin.json
+        # causes "Duplicate hooks file detected" on load.
+        if manifest_path.exists():
+            ok_m, manifest_data = _load_json(manifest_path)
+            if ok_m and manifest_data and "hooks" in manifest_data:
+                hooks_auto_path = plugin / "hooks" / "hooks.json"
+                if hooks_auto_path.exists():
+                    result["errors"].append(
+                        "plugin.json has 'hooks' field but hooks/hooks.json also exists — "
+                        "Claude Code auto-discovers hooks/hooks.json, causing 'Duplicate hooks file detected'. "
+                        "Remove the 'hooks' field from plugin.json."
+                    )
+
         # Check for build artifacts in plugin root
         build_artifacts = ["__pycache__", ".venv", "venv", "node_modules", ".pytest_cache", ".git"]
         gitignore_path = plugin / ".gitignore"
@@ -258,6 +272,52 @@ def audit_plugins(plugins_dir: Path, marketplace_root: str, plugin_filter: Optio
             result["errors"].append(
                 f".claude/ at {rel} (should be removed; {len(entries)} entries: {entries[:3]}{'...' if len(entries) > 3 else ''})"
             )
+
+        # Check compatibility wrapper imports (P:/.claude/hooks/*.py that delegate to plugins)
+        hooks_global_dir = Path("P:/.claude/hooks")
+        if hooks_global_dir.exists():
+            for wrapper in hooks_global_dir.glob("*.py"):
+                if wrapper.name.startswith("_"):
+                    continue
+                try:
+                    content = wrapper.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                # Only check wrappers that delegate to cc-aca-session or other plugins
+                if "cc-aca-session" not in content and "cc-" not in content:
+                    continue
+                # Look for: from hooks.xxx.aca_session_yyy import FUNC
+                import_match = re.search(
+                    r"from\s+(hooks\.\S+)\s+import\s+(\w+)", content
+                )
+                if not import_match:
+                    continue
+                module_path = import_match.group(1)
+                func_name = import_match.group(2)
+                # Find the plugin root from the sys.path.insert line
+                plugin_root_match = re.search(
+                    r"_PLUGIN_ROOT\s*=\s*Path\([\"']([^\"']+)[\"']\)", content
+                )
+                if not plugin_root_match:
+                    continue
+                plugin_root = Path(plugin_root_match.group(1))
+                # Convert module path to file: hooks.sessionend.xxx -> hooks/sessionend/xxx.py
+                module_file = plugin_root / (module_path.replace(".", "/") + ".py")
+                if not module_file.exists():
+                    continue
+                try:
+                    mod_content = module_file.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                # Check if the function is defined in the module
+                if not re.search(rf"^(?:def|async\s+def)\s+{re.escape(func_name)}\s*\(", mod_content, re.MULTILINE):
+                    exports = re.findall(r"^(?:def|async\s+def)\s+(\w+)\s*\(", mod_content, re.MULTILINE)
+                    exports_str = ", ".join(exports[:5]) if exports else "no functions found"
+                    result["warnings"].append(
+                        f"Wrapper {wrapper.name} imports '{func_name}' from {module_path}, "
+                        f"but module defines: {exports_str}"
+                    )
+
         results.append(result)
     return results
 def audit_marketplace(marketplace_root: str) -> list[dict]:
@@ -426,6 +486,33 @@ def audit_skill_frontmatter(plugins_dir: Path, plugin_filter: Optional[str] = No
                         f"— slash command /{name_field} will not appear as /{skill_dir.name}"
                     ),
                     "fix": f"Set name: {skill_dir.name} to match directory",
+                })
+
+            # Check for collision with built-in slash commands
+            _BUILTIN_COMMANDS = frozenset({
+                "add-dir", "agents", "autofix-pr", "batch", "bug", "clear", "config",
+                "cost", "doctor", "help", "init", "listen", "login", "logout",
+                "memory", "model", "mcp", "permissions", "recap", "release-notes",
+                "reload-plugins", "remote-control", "remote-env", "rename", "resume",
+                "review", "rewind", "sandbox", "schedule", "security-review",
+                "setup-bedrock", "setup-vertex", "skills", "stats", "status",
+                "statusline", "stickers", "tasks", "team-onboarding",
+                "teleport", "terminal-setup", "theme", "vim",
+            })
+            effective_name = name_field or skill_dir.name
+            if effective_name in _BUILTIN_COMMANDS:
+                findings.append({
+                    "type": "builtin_command_collision",
+                    "plugin": plugin.name,
+                    "skill": skill_dir.name,
+                    "file": str(skill_md.relative_to(plugins_dir)),
+                    "collides_with": effective_name,
+                    "severity": "warning",
+                    "issue": (
+                        f"Skill name '{effective_name}' collides with built-in /{effective_name} command "
+                        f"— plugin skill overrides the built-in with no priority mechanism. "
+                        f"Rename the skill to avoid collision."
+                    ),
                 })
 
     return findings
@@ -1596,7 +1683,6 @@ def main(argv: list[str]) -> int:
         import subprocess
         if path_fix_count > 0:
             drift_findings = audit_source_cache_drift(plugins_dir)
-            drift_findings = [f for f in drift_findings if f["plugin"] in plugin_names]
         synced = []
         stale_deleted = []
         for f in drift_findings:
@@ -1648,20 +1734,41 @@ def main(argv: list[str]) -> int:
         print(f"  3. Run with --validate to validate all plugins")
         print(f"  4. Update marketplace: {C_CYAN}/plugin marketplace update local{C_RESET}")
 
-    # --summarize is default-on for packages-root mode (makes output actionable)
-    if args.summarize is None:
-        args.summarize = bool(args.packages_root)
-
     if args.summarize:
         import subprocess as _subprocess
-        r = _subprocess.run(
-            ["python3", str(Path(__file__).parent / "summarize_audit.py")],
-            capture_output=True, text=True,
-        )
-        if r.stdout:
-            print(r.stdout)
-        if r.returncode != 0 and r.stderr:
-            print(r.stderr, file=sys.stderr)
+        import tempfile
+
+        # Collect all findings into a single JSON for the summarizer
+        all_findings = []
+        for r in plugin_results:
+            for e in r.get("errors", []):
+                all_findings.append({"plugin": r["plugin"], "type": "plugin_error", "kind": "error", "errors": [e]})
+            for w in r.get("warnings", []):
+                all_findings.append({"plugin": r["plugin"], "type": "plugin_warning", "kind": "warning", "warnings": [w]})
+        all_findings.extend(orphan_findings)
+        all_findings.extend(skill_fm_findings)
+        all_findings.extend(drift_findings)
+
+        # Write findings to temp file and pass to summarizer
+        tmp_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8",
+            ) as tmp:
+                json.dump({"findings": all_findings}, tmp)
+                tmp_path = tmp.name
+
+            r = _subprocess.run(
+                [sys.executable, str(Path(__file__).parent / "summarize_audit.py"), tmp_path],
+                capture_output=True, text=True, timeout=30,
+            )
+            if r.stdout:
+                print(r.stdout)
+            if r.returncode != 0 and r.stderr:
+                print(r.stderr, file=sys.stderr)
+        finally:
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
 
     return error_count
 if __name__ == "__main__":

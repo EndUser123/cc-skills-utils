@@ -40,7 +40,10 @@ def summarize(json_path: Path) -> list[dict]:
     if not json_path.exists():
         return []
 
-    raw = json.loads(json_path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(json_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError):
+        return []
     # Support both a list of findings and a wrapped dict with a 'findings' key
     if isinstance(raw, list):
         findings = raw
@@ -63,7 +66,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "plugin": plugin,
                 "what": f"Orphaned junction (target not found: {target})",
                 "fix": f"Remove junction: Remove-Item 'P:/.claude-marketplace/plugins/{plugin}' -Force",
-                "fix_also": f"Re-create junction: cmd /c mklink /J 'P:/.claude-marketplace/plugins/{plugin}' 'P:/packages/{plugin}'",
+                "fix_also": f"Re-create junction: New-Item -ItemType Junction -Path 'P:/.claude-marketplace/plugins/{plugin}' -Target 'P:/packages/{plugin}'",
             })
 
         # Missing manifest
@@ -84,7 +87,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "type": "ERROR",
                 "plugin": plugin,
                 "what": f"Invalid JSON in {f.get('file', '?')}",
-                "fix": f"Validate and fix: python3 -c \"import json; json.load(open('P:/packages/{plugin}/.claude-plugin/plugin.json'))\"",
+                "fix": f"python -c \"import json; json.load(open('P:/packages/{plugin}/.claude-plugin/plugin.json'))\"",
             })
 
         # Frontmatter name mismatch
@@ -97,7 +100,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "type": "WARNING",
                 "plugin": plugin,
                 "what": f"SKILL.md has name='{frontmatter_name}' but directory is '{directory_name}/'",
-                "fix": ("python3 -c \"import re; p='P:/packages/" + plugin + "/skills/" + skill + "/SKILL.md'; "
+                "fix": ("python -c \"import re; p='P:/packages/" + plugin + "/skills/" + skill + "/SKILL.md'; "
                         "c=open(p).read(); c=re.sub(r'name: " + frontmatter_name + "', 'name: " + directory_name + "', c); open(p,'w').write(c)\""),
             })
 
@@ -109,7 +112,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "type": "WARNING",
                 "plugin": plugin,
                 "what": f"skills/{skill}/SKILL.md has no 'name' frontmatter field",
-                "fix": ("python3 -c \"import re; p='P:/packages/" + plugin + "/skills/" + skill + "/SKILL.md'; "
+                "fix": ("python -c \"import re; p='P:/packages/" + plugin + "/skills/" + skill + "/SKILL.md'; "
                         "c=open(p).read(); c=re.sub(r'^---\\n', '---\\nname: " + skill + "\\n', c); open(p,'w').write(c)\""),
             })
 
@@ -121,7 +124,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "type": "ACTIONABLE",
                 "plugin": plugin,
                 "what": f"Source diverged from cache ({count} file(s))",
-                "fix": f"python3 'P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py' --packages-root 'P:/packages' --auto-fix --plugins {plugin}",
+                "fix": f"python 'P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py' --packages-root 'P:/packages' --auto-fix --plugins {plugin}",
             })
 
         # Drift: stale version dirs
@@ -132,7 +135,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "type": "ACTIONABLE",
                 "plugin": plugin,
                 "what": f"Stale version dirs: {stale}",
-                "fix": f"Remove stale: Get-ChildItem 'C:/Users/brsth/.claude/plugins/cache/local/{plugin}' | Where-Object {{$_.Name -notin @('{f.get('current_version', '')}')}} | Remove-Item -Recurse -Force",
+                "fix": f"Remove stale: Get-ChildItem \"$env:USERPROFILE/.claude/plugins/cache/local/{plugin}\" | Where-Object {{$_.Name -notin @('{f.get('current_version', '')}')}} | Remove-Item -Recurse -Force",
             })
 
         # Drift: cache-only
@@ -163,7 +166,7 @@ def summarize(json_path: Path) -> list[dict]:
                 "type": "ACTIONABLE",
                 "plugin": plugin,
                 "what": f"Hardcoded path: {f.get('issue', f.get('what', '?'))}",
-                "fix": f"python3 'P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py' --packages-root 'P:/packages' --auto-fix --scan-paths --plugins {plugin}",
+                "fix": f"python 'P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py' --packages-root 'P:/packages' --auto-fix --scan-paths --plugins {plugin}",
             })
 
         # Broken hook command file
@@ -267,17 +270,9 @@ def machine_summary(actions: list[dict]) -> dict:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        # Run audit inline and summarize
-        import subprocess
-        result = subprocess.run(
-            ["python3", "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py",
-             "--packages-root", "P:/packages", "--auto-fix"],
-            capture_output=True, text=True
-        )
-        print(result.stdout)
-        if result.stderr:
-            print(result.stderr, file=sys.stderr)
-        return result.returncode
+        print("Usage: summarize_audit.py <audit-findings.json>", file=sys.stderr)
+        print("  The audit script passes findings JSON automatically via --summarize.", file=sys.stderr)
+        return 1
 
     json_path = Path(argv[1])
     actions = summarize(json_path)
