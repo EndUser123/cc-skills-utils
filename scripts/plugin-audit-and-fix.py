@@ -1274,6 +1274,36 @@ def main(argv: list[str]) -> int:
             else:
                 print(f"\n{C_GREEN}All source packages have marketplace junctions.{C_RESET}")
 
+            # Check for stale marketplace junctions (target deleted but junction remains)
+            stale_junctions = []
+            source_names = {p.name for p in plugin_dirs}
+            for mp_entry in mp_plugins_dir.iterdir():
+                if mp_entry.name.startswith(".") or not mp_entry.is_dir():
+                    continue
+                if mp_entry.name in source_names:
+                    continue  # source exists, not stale
+                # Check if it's a junction/symlink pointing to a deleted target
+                if mp_entry.is_symlink():
+                    try:
+                        target = os.readlink(str(mp_entry))
+                        if not Path(target).exists():
+                            stale_junctions.append((mp_entry.name, target))
+                    except OSError:
+                        pass
+            if stale_junctions:
+                print(f"\n{C_YELLOW}Stale marketplace junctions ({len(stale_junctions)}):{C_RESET}")
+                for name, target in stale_junctions:
+                    print(f"  {name} → {target} (target deleted)")
+                if args.auto_fix:
+                    import shutil
+                    for name, target in stale_junctions:
+                        junction_path = mp_plugins_dir / name
+                        try:
+                            shutil.rmtree(str(junction_path))
+                            print(f"  {C_GREEN}Removed stale junction: {name}{C_RESET}")
+                        except OSError as e:
+                            print(f"  {C_RED}Failed to remove {name}: {e}{C_RESET}")
+
         # Audit each source plugin
         print("\nAuditing source packages...")
         all_results = []
@@ -1368,6 +1398,17 @@ def main(argv: list[str]) -> int:
                             continue
                         for action in r["actions"]:
                             print(f"  [{r['plugin']}] {action}")
+
+            # Auto-fix: git artifacts (.pytest_cache, __pycache__, etc.)
+            git_results = auto_fix_git_artifacts(packages_dir)
+            git_fix_count = sum(len(r["actions"]) for r in git_results if r.get("plugin") in plugin_names)
+            if git_fix_count > 0:
+                print(f"{C_GREEN}Fixed .gitignore in {git_fix_count} plugin(s).{C_RESET}")
+                for r in git_results:
+                    if r.get("plugin") not in plugin_names:
+                        continue
+                    for action in r["actions"]:
+                        print(f"  [{r['plugin']}] {action}")
 
             # Auto-fix: stale version dirs + source sync
             # Re-check drift AFTER path fixes — path fixes modify source, so the
