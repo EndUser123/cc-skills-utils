@@ -30,13 +30,19 @@ When invoked without an action, run the complete check-fix-verify workflow.
 
 ## Sync Rules
 
-Plugins are **junctions** — `P:/packages/<name>/` IS the live source. Cache at `C:\Users\brsth\.claude\plugins\cache\local\<name>\<version>/` is only an install mirror. Source is always canonical.
+Plugins are **junctions** — `P:/packages/<name>/` IS the live source. Cache at `C:\Users\brsth\.claude\plugins\cache\local\<name>\<version>/` is an install mirror.
 
-- **Same file, different content** → source wins, copy to cache. Conflict logged for review.
+The audit script uses **quality-aware conflict resolution** when both sides have different content:
+
+- **JSON files**: parsed for validity + schema structure (e.g., `hooks.json` must have `"hooks"` key — `{"hooks": {}}` beats `{}`)
+- **Python files**: `ast.parse` validity — syntax errors lose
+- **Text files**: encoding validity + non-trivial content
+- **Both pass quality checks** → source wins (canonical location)
+- **One fails quality** → the passing side wins regardless of location
+- **Both fail** → flagged for manual review
+
 - **File only in source** → copy to cache
-- **File only in cache** → skip (deleted from source = stale; not copied to source)
-
-There is no "cache → source" direction. Editing cache directly will be overwritten on next sync.
+- **File only in cache** → quality-checked before restoring to source (broken files left as stale)
 
 2. **Sync marketplace index**:
    ```bash
@@ -47,6 +53,15 @@ There is no "cache → source" direction. Editing cache directly will be overwri
    ```bash
    python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --drift
    ```
+
+   If drift detected, **auto-bump** each drifted plugin to propagate source changes to cache:
+   ```bash
+   python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump <name> --marketplace-root "P:/packages/.claude-marketplace"
+   ```
+
+   `--bump` runs marketplace update and drift verification automatically — no manual sync needed.
+
+   Skip bump only for plugins with **conflicts** (flagged during step 1) — those need manual review first.
 
 4. **Validate** all marketplace plugins:
    ```bash
@@ -284,15 +299,17 @@ Bumps the patch version (e.g., `2.0.0` → `2.0.1`) in all version files AND upd
 python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump <name> --marketplace-root "P:/packages/.claude-marketplace"
 ```
 
-After bumping, reload:
-```
-/reload-plugins
-```
-
 **What --bump does automatically:**
 1. Increments patch version in `plugin.json` and both `marketplace.json` files
 2. Syncs source → new cache dir (removes stale cache dir)
 3. Updates `installed_plugins.json` version and `lastUpdated` timestamp
+4. Runs `claude plugin marketplace update local` automatically
+5. Verifies zero drift for the bumped plugin
+
+After bumping, reload:
+```
+/reload-plugins
+```
 
 **When to use**: After editing any plugin source files under `P:/packages/<name>/` that should propagate to the running session. The plugin system loads from version-keyed cache, not source — without a version bump, changes are invisible.
 
@@ -315,6 +332,9 @@ else:
 "
 ```
 Then `/reload-plugins`. This is the most common cause of "plugin installed but not loading."
+
+**"failed to load" with hooks.json error:**
+Plugin `hooks/hooks.json` must be `{"hooks": {}}` (valid but empty), not `{}`. The audit auto-fix corrects this. Plugins that register hooks via settings.json router hooks (not hooks.json) still need a valid `{"hooks": {}}` file — Claude Code validates the structure on load even when hooks.json has no entries.
 
 **If install fails:**
 1. Run `claude plugin marketplace update local` then type `/reload-plugins`

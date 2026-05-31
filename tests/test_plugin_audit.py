@@ -118,7 +118,8 @@ class TestBidirSync:
         src.mkdir()
         cache = tmp_path / "cache"
         cache.mkdir()
-        (cache / "cache_rescue.txt").write_text("cache-only work")
+        # Cache-only files with quality issues are skipped (not restored)
+        (cache / "cache_rescue.txt").write_text("")  # empty file → quality issue
         stats = bidir_sync(src, cache)
         assert stats["skipped"] == 1
         assert not (src / "cache_rescue.txt").exists()
@@ -368,3 +369,200 @@ class TestBumpCacheManagement:
         assert entry["version"] == "1.0.1", f"version should be 1.0.1, got {entry['version']}"
         assert str(cache_root / "test-pkg" / "1.0.1") in entry["installPath"], \
             f"installPath should point to 1.0.1, got {entry['installPath']}"
+
+
+
+class TestAuditSkillFrontmatter:
+    """Test audit_skill_frontmatter detects missing and mismatched frontmatter fields."""
+
+    def test_detects_missing_frontmatter(self, tmp_path):
+        """Skill with no YAML frontmatter should be flagged."""
+        audit_skill_frontmatter = _mod.audit_skill_frontmatter
+        plugins = tmp_path / "plugins"
+        pkg = plugins / "test-pkg"
+        skills = pkg / "skills" / "nofm"
+        skills.mkdir(parents=True)
+        # No frontmatter at all
+        (skills / "SKILL.md").write_text("# Just a heading\n")
+
+        findings = audit_skill_frontmatter(plugins)
+
+        missing_fm = [f for f in findings if f["type"] == "missing_frontmatter"]
+        assert len(missing_fm) == 1
+        assert missing_fm[0]["skill"] == "nofm"
+        assert "no YAML frontmatter" in missing_fm[0]["issue"]
+
+    def test_detects_missing_name_field(self, tmp_path):
+        """Skill with frontmatter but no 'name' field should be flagged."""
+        audit_skill_frontmatter = _mod.audit_skill_frontmatter
+        plugins = tmp_path / "plugins"
+        pkg = plugins / "test-pkg"
+        skills = pkg / "skills" / "noname"
+        skills.mkdir(parents=True)
+        (skills / "SKILL.md").write_text("---\ndescription: A skill\n---\n# Content\n")
+
+        findings = audit_skill_frontmatter(plugins)
+
+        missing_name = [f for f in findings if f["type"] == "missing_name_field"]
+        assert len(missing_name) == 1
+        assert missing_name[0]["skill"] == "noname"
+        assert "no 'name'" in missing_name[0]["issue"]
+
+    def test_detects_missing_description_field(self, tmp_path):
+        """Skill with frontmatter but no 'description' field should be flagged."""
+        audit_skill_frontmatter = _mod.audit_skill_frontmatter
+        plugins = tmp_path / "plugins"
+        pkg = plugins / "test-pkg"
+        skills = pkg / "skills" / "nodesc"
+        skills.mkdir(parents=True)
+        (skills / "SKILL.md").write_text("---\nname: nodesc\n---\n# Content\n")
+
+        findings = audit_skill_frontmatter(plugins)
+
+        missing_desc = [f for f in findings if f["type"] == "missing_description_field"]
+        assert len(missing_desc) == 1
+        assert missing_desc[0]["skill"] == "nodesc"
+        assert "no 'description'" in missing_desc[0]["issue"]
+
+    def test_skips_lib_directories(self, tmp_path):
+        """__lib and __lib__ directories should be skipped."""
+        audit_skill_frontmatter = _mod.audit_skill_frontmatter
+        plugins = tmp_path / "plugins"
+        pkg = plugins / "test-pkg"
+        skills = pkg / "skills"
+        skills.mkdir(parents=True)
+        # Create __lib with no frontmatter
+        (skills / "__lib" / "module.py").parent.mkdir()
+        (skills / "__lib" / "module.py").write_text("# no frontmatter\n")
+
+        findings = audit_skill_frontmatter(plugins)
+
+        # Should not report __lib as missing frontmatter
+        assert len(findings) == 0
+
+    def test_valid_frontmatter_no_findings(self, tmp_path):
+        """Skill with proper name and description should not be flagged."""
+        audit_skill_frontmatter = _mod.audit_skill_frontmatter
+        plugins = tmp_path / "plugins"
+        pkg = plugins / "test-pkg"
+        skills = pkg / "skills" / "valid"
+        skills.mkdir(parents=True)
+        (skills / "SKILL.md").write_text("---\nname: valid\ndescription: A valid skill\n---\n# Content\n")
+
+        findings = audit_skill_frontmatter(plugins)
+
+        assert len(findings) == 0
+
+
+class TestAuditIntraSourceDuplication:
+    """Tests for audit_intra_source_duplication — duplicate sibling lib dir detection."""
+
+    def _make_plugins_dir(self, tmp_path: Path, plugin_name: str = "myplugin"):
+        """Return (plugins_dir, plugin_dir)."""
+        plugins = tmp_path / "plugins"
+        plugin = plugins / plugin_name
+        plugin.mkdir(parents=True)
+        return plugins, plugin
+
+    # (a) Identical content -> flagged, diverged: False
+    def test_duplication_identical_flagged_not_diverged(self, tmp_path):
+        """__lib/ and __lib__/ with identical m.py -> finding with diverged=False."""
+        audit = _mod.audit_intra_source_duplication
+        plugins, plugin = self._make_plugins_dir(tmp_path)
+
+        lib1 = plugin / "__lib"
+        lib2 = plugin / "__lib__"
+        lib1.mkdir()
+        lib2.mkdir()
+        content = "def foo(): pass\n"
+        (lib1 / "m.py").write_text(content)
+        (lib2 / "m.py").write_text(content)
+
+        findings = audit(plugins)
+
+        dup = [f for f in findings if f["type"] == "intra_source_duplication"]
+        assert len(dup) == 1, f"Expected 1 finding, got: {dup}"
+        f = dup[0]
+        assert f["plugin"] == "myplugin"
+        assert f["overlap_count"] == 1
+        assert f["diverged"] is False
+        assert "diverged_paths" not in f
+
+    # (b) Divergent content -> flagged, diverged: True, lists m.py
+    def test_duplication_divergent_flagged_with_paths(self, tmp_path):
+        """__lib/ and __lib__/ with different m.py -> finding with diverged=True, diverged_paths=[m.py]."""
+        audit = _mod.audit_intra_source_duplication
+        plugins, plugin = self._make_plugins_dir(tmp_path)
+
+        lib1 = plugin / "__lib"
+        lib2 = plugin / "__lib__"
+        lib1.mkdir()
+        lib2.mkdir()
+        (lib1 / "m.py").write_text("def foo(): return 1\n")
+        (lib2 / "m.py").write_text("def foo(): return 2\n")  # diverged!
+
+        findings = audit(plugins)
+
+        dup = [f for f in findings if f["type"] == "intra_source_duplication"]
+        assert len(dup) == 1
+        f = dup[0]
+        assert f["diverged"] is True
+        assert "m.py" in f["diverged_paths"]
+
+    # (c) Only __lib/ present -> NOT flagged
+    def test_only_one_lib_dir_not_flagged(self, tmp_path):
+        """Plugin with only __lib/ (no sibling) -> no findings."""
+        audit = _mod.audit_intra_source_duplication
+        plugins, plugin = self._make_plugins_dir(tmp_path)
+
+        lib1 = plugin / "__lib"
+        lib1.mkdir()
+        (lib1 / "m.py").write_text("def foo(): pass\n")
+
+        findings = audit(plugins)
+
+        dup = [f for f in findings if f["type"] == "intra_source_duplication"]
+        assert len(dup) == 0
+
+    # (d) Junction/realpath dedup
+    def test_realpath_dedup_skips_already_visited(self, tmp_path):
+        """The visited_realpaths set prevents scanning the same physical dir twice.
+
+        We cannot create real NTFS junctions in a tmp_path without admin rights.
+        Instead, we verify the dedup logic directly: two plugin entries whose
+        os.path.realpath resolves to the same path should yield findings from
+        only ONE scan, not two.  We do this by creating a single physical plugin
+        dir and symlinking it as a second entry (symlinks work without elevation).
+        If symlink creation fails (Windows policy), we skip rather than assert a
+        fabricated pass.
+        """
+        audit = _mod.audit_intra_source_duplication
+        plugins = tmp_path / "plugins"
+        plugins.mkdir()
+
+        # Create physical plugin with dup lib dirs
+        physical = plugins / "real-plugin"
+        physical.mkdir()
+        lib1 = physical / "__lib"
+        lib2 = physical / "__lib__"
+        lib1.mkdir()
+        lib2.mkdir()
+        (lib1 / "m.py").write_text("def foo(): pass\n")
+        (lib2 / "m.py").write_text("def foo(): pass\n")
+
+        symlink = plugins / "sym-plugin"
+        try:
+            os.symlink(str(physical), str(symlink))
+        except (OSError, NotImplementedError):
+            # Symlinks require elevated permissions or Developer Mode on Windows.
+            # Skip rather than fabricate an assertion.
+            pytest.skip("Symlink creation not available; dedup logic covered by code inspection")
+
+        findings = audit(plugins)
+
+        dup = [f for f in findings if f["type"] == "intra_source_duplication"]
+        # Without dedup: 2 findings (one for real-plugin, one for sym-plugin).
+        # With dedup: 1 finding — realpath of sym-plugin matches real-plugin, skipped.
+        assert len(dup) == 1, (
+            f"Expected 1 finding (dedup prevented double-scan), got {len(dup)}: {dup}"
+        )
