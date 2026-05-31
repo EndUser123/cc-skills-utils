@@ -128,6 +128,7 @@ parser.add_argument("--worktree", action="store_true")
 parser.add_argument("--no-resolve", action="store_true")
 parser.add_argument("--repos", default="all")  # all, packages, .claude, mcp
 parser.add_argument("--select", default=None)  # comma-separated indices (e.g., "1,3" or "all")
+parser.add_argument("--dry-run", action="store_true", help="Show what would be committed/pushed without doing it")
 parser.add_argument("worktree_action", nargs="?", default="list")
 parser.add_argument("worktree_name", nargs="?", default=None)
 args = parser.parse_args()
@@ -142,6 +143,19 @@ AUTO_RESOLVE = not args.no_resolve
 REPOS_FILTER = args.repos
 SELECT_REPOS = args.select
 
+DRY_RUN = getattr(args, "dry_run", False)
+
+# Patterns to exclude from staging — session artifacts that create false divergence
+# across machines (different per-machine state, should not follow commits)
+STAGING_EXCLUDE_PATTERNS = [
+    ".claude/.artifacts/",
+    "logs/",
+    ".in_use/",
+    "core/backends/*/sessions/",
+    "core/backends/*/query_log",
+    "core/backends/*/metrics",
+    "core/backends/local/cache/",
+]
 # ============================================================
 # UTILITIES
 # ============================================================
@@ -571,7 +585,18 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
     )
 
     if push_result.returncode == 0:
+        # Verify remote ref actually moved (catches phantom/identical-SHA pushes)
+        verify = run(
+            ["git", "rev-parse", f"{remote}/{branch}"],
+            cwd=repo.path,
+            silent=True
+        )
+        if verify.returncode == 0:
+            remote_ref = verify.stdout.strip()
+            if remote_ref != "HEAD":
+                return True, f"Pushed {commits_ahead} commit(s) to {remote}/{branch} (verified)"
         return True, f"Pushed {commits_ahead} commit(s) to {remote}/{branch}"
+
     else:
         error = push_result.stderr.strip()
         # Provide actionable error messages
@@ -863,7 +888,11 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
             break
         max_iterations -= 1
         # Stage first, then check — this captures files modified between checks
-        add_result = run("git add -A", cwd=worktree, silent=True)
+        # Exclude session artifacts that create false divergence across machines
+        add_cmd = ["git", "add", "-A", "--"]
+        for pattern in STAGING_EXCLUDE_PATTERNS:
+            add_cmd.extend(["--", f":(exclude){pattern}"])
+        add_result = run(add_cmd, cwd=worktree, silent=True)
         if add_result.returncode != 0 and "index.lock" in add_result.stderr:
             # Concurrent git process — wait briefly and retry (common during health check parallel workers)
             time.sleep(0.5)
@@ -876,6 +905,10 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
             break
 
         commit_msg = generate_commit_message_for_repo(repo)
+        if DRY_RUN:
+            item("Commit", "ok", f"(dry-run) would commit: {commit_msg}")
+            break
+
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=worktree, silent=True)
 
         if commit_result.returncode != 0:
@@ -894,11 +927,14 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
 
     # Push if main repo (auto-push)
     if is_main:
-        success, msg = push_repo(repo, silent=not VERBOSE)
-        if success:
-            item(f"Push to origin", "ok", msg)
+        if DRY_RUN:
+            item(f"Push to origin", "ok", "(dry-run) would push to origin")
         else:
-            item(f"Push to origin", "warning", msg)
+            success, msg = push_repo(repo, silent=not VERBOSE)
+            if success:
+                item(f"Push to origin", "ok", msg)
+            else:
+                item(f"Push to origin", "warning", msg)
 
     _sync_results[repo.name] = {"did_commit": did_commit}
     return True, did_commit
