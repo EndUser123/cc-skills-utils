@@ -148,13 +148,13 @@ DRY_RUN = getattr(args, "dry_run", False)
 # Patterns to exclude from staging — session artifacts that create false divergence
 # across machines (different per-machine state, should not follow commits)
 STAGING_EXCLUDE_PATTERNS = [
-    ".claude/.artifacts/",
-    "logs/",
-    ".in_use/",
-    "core/backends/*/sessions/",
+    ".claude/.artifacts/**",
+    "logs/**",
+    ".in_use/**",
+    "core/backends/*/sessions/**",
     "core/backends/*/query_log",
     "core/backends/*/metrics",
-    "core/backends/local/cache/",
+    "core/backends/local/cache/**",
 ]
 # ============================================================
 # UTILITIES
@@ -447,7 +447,9 @@ def get_repo_status(repo: RepoInfo) -> Tuple[bool, int, int]:
     remote_name = remote_result.stdout.strip().split("\n")[0]  # Use first remote
 
     # Refresh remote refs to avoid stale origin/* state (fixes rejected pushes)
-    run(["git", "fetch", remote_name], cwd=repo.path, silent=True)
+    fetch_result = run(["git", "fetch", remote_name], cwd=repo.path, silent=True)
+    if fetch_result.returncode != 0 and VERBOSE:
+        print(f"  ! Fetch failed for {repo.name}: {fetch_result.stderr.strip()[:80] if fetch_result.stderr else 'unknown'}")
 
     # Local commits not on remote (ahead)
     ahead_result = run(
@@ -463,8 +465,14 @@ def get_repo_status(repo: RepoInfo) -> Tuple[bool, int, int]:
         silent=True
     )
 
-    commits_ahead = int(ahead_result.stdout.strip()) if ahead_result.returncode == 0 else -1
-    commits_behind = int(behind_result.stdout.strip()) if behind_result.returncode == 0 else -1
+    try:
+        commits_ahead = int(ahead_result.stdout.strip()) if ahead_result.returncode == 0 else -1
+    except ValueError:
+        commits_ahead = -1
+    try:
+        commits_behind = int(behind_result.stdout.strip()) if behind_result.returncode == 0 else -1
+    except ValueError:
+        commits_behind = -1
 
     return True, commits_ahead, commits_behind
 
@@ -561,7 +569,9 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
         return False, f"{remote_url}"
 
     # Refresh remote refs to avoid stale ahead/behind calculation
-    run(["git", "fetch", remote], cwd=repo.path, silent=True)
+    fetch_result = run(["git", "fetch", remote], cwd=repo.path, silent=True)
+    if fetch_result.returncode != 0 and VERBOSE:
+        print(f"  ! Fetch failed for {repo.name}: {fetch_result.stderr.strip()[:80] if fetch_result.stderr else 'unknown'}")
 
     # Check if we have commits to push
     check_result = run(
@@ -573,7 +583,12 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
     if check_result.returncode != 0:
         return False, f"Cannot determine commits ahead"
 
-    commits_ahead = int(check_result.stdout.strip())
+    commits_ahead = -1
+    if check_result.returncode == 0:
+        try:
+            commits_ahead = int(check_result.stdout.strip())
+        except ValueError:
+            pass
     if commits_ahead == 0:
         return True, "Already up-to-date"
 
@@ -598,7 +613,7 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
         return True, f"Pushed {commits_ahead} commit(s) to {remote}/{branch}"
 
     else:
-        error = push_result.stderr.strip()
+        error = (push_result.stderr or "").strip()
         # Provide actionable error messages
         if "authentication" in error.lower() or "credential" in error.lower():
             action = f"Run 'git push' manually in {repo.path} to authenticate"
@@ -912,7 +927,8 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=worktree, silent=True)
 
         if commit_result.returncode != 0:
-            if "nothing to commit" in commit_result.stderr.lower():
+            err = commit_result.stderr or ""
+            if "nothing to commit" in err.lower():
                 break
             if "index.lock" in commit_result.stderr:
                 # Concurrent git process — wait and retry
@@ -1023,13 +1039,15 @@ def _check_repo_health(repo: RepoInfo) -> Tuple[str, str, str]:
     """Worker function for parallel health check. Auto-commits dirty files first so status reflects post-clean state. Returns (relative_path, status, detail)."""
     # Auto-commit dirty files before checking status — health check shows truthful post-commit state
     if _has_uncommitted_worktree_changes(repo):
+        if DRY_RUN:
+            return (repo.relative_path, "warning", "dirty (dry-run)")
         # Stage all changes including submodule contents
         run("git add -A", cwd=repo.path, silent=True)
         # For submodules: init/update so submodule worktree matches index after add
         submodule_result = run("git submodule update --init", cwd=repo.path, silent=True)
         if submodule_result.returncode != 0:
             # Orphaned submodules (registered gitlink but no .gitmodules entry) — remove stale gitlink, re-add as regular content
-            output = submodule_result.stdout + submodule_result.stderr
+            output = (submodule_result.stdout or "") + (submodule_result.stderr or "")
             for line in output.splitlines():
                 if "No url found for submodule path" in line:
                     # Extract path between "path '" and "' in .gitmodules"
