@@ -432,6 +432,9 @@ def get_repo_status(repo: RepoInfo) -> Tuple[bool, int, int]:
     # Check commits ahead of remote/branch
     remote_name = remote_result.stdout.strip().split("\n")[0]  # Use first remote
 
+    # Refresh remote refs to avoid stale origin/* state (fixes rejected pushes)
+    run(["git", "fetch", remote_name], cwd=repo.path, silent=True)
+
     # Local commits not on remote (ahead)
     ahead_result = run(
         ["git", "rev-list", "--count", f"origin/{branch}..HEAD"],
@@ -542,6 +545,9 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
 
     if not remote or not branch:
         return False, f"{remote_url}"
+
+    # Refresh remote refs to avoid stale ahead/behind calculation
+    run(["git", "fetch", remote], cwd=repo.path, silent=True)
 
     # Check if we have commits to push
     check_result = run(
