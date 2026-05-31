@@ -1117,19 +1117,41 @@ with ThreadPoolExecutor(max_workers=8) as executor:
         rel_path, status, detail = future.result()
         item(rel_path, status, detail)
 
-# Worktree listing
-result = run(["git", "worktree", "list"], cwd=MAIN_ROOT, silent=True)
+# Worktree listing using --porcelain for robust parsing (paths with spaces)
+result = run(["git", "worktree", "list", "--porcelain"], cwd=MAIN_ROOT, silent=True)
 if result.returncode == 0 and result.stdout.strip():
     print()
     print("  Worktrees:")
-    for line in result.stdout.strip().split("\n"):
-        parts = line.split()
-        if len(parts) >= 3:
-            path, commit = parts[0], parts[1]
-            branch = parts[2].strip("[]") if len(parts) > 2 else "?"
-            is_current = Path.cwd().resolve() == Path(path).resolve()
-            prefix = "  * " if is_current else "    "
-            print(f"{prefix}{branch} at {path}")
+    current_path = Path.cwd().resolve()
+    # Porcelain format: "worktree <path>\nHEAD <sha>\nbranch <ref>\n"
+    lines = result.stdout.strip().split("\n")
+    worktrees = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+            head_sha = ""
+            branch_ref = ""
+            # Collect associated HEAD and branch lines
+            j = i + 1
+            while j < len(lines) and not lines[j].strip().startswith("worktree "):
+                sub = lines[j].strip()
+                if sub.startswith("HEAD "):
+                    head_sha = sub[len("HEAD "):]
+                elif sub.startswith("branch "):
+                    branch_ref = sub[len("branch "):]
+                j += 1
+            # Extract branch name from refs/heads/branch-name
+            branch = branch_ref.replace("refs/heads/", "") if branch_ref else "?"
+            is_current = current_path == Path(path).resolve()
+            worktrees.append((path, branch, is_current))
+            i = j
+        else:
+            i += 1
+    for path, branch, is_current in worktrees:
+        prefix = "  * " if is_current else "    "
+        print(f"{prefix}{branch} at {path}")
 
 if HEALTH_ONLY:
     sys.exit(0)
