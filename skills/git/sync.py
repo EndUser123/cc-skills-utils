@@ -131,23 +131,32 @@ parser.add_argument("--select", default=None)  # comma-separated indices (e.g., 
 parser.add_argument("--dry-run", action="store_true", help="Show what would be committed/pushed without doing it")
 parser.add_argument("worktree_action", nargs="?", default="list")
 parser.add_argument("worktree_name", nargs="?", default=None)
-args = parser.parse_args()
 
-HEALTH_ONLY = args.health
-AUTO_FIX = args.fix
-VERBOSE = args.verbose
-WORKTREE_MODE = args.worktree
-WORKTREE_ACTION = args.worktree_action
-WORKTREE_NAME = args.worktree_name
-AUTO_RESOLVE = not args.no_resolve
-REPOS_FILTER = args.repos
-SELECT_REPOS = args.select
-DRY_RUN = getattr(args, 'dry_run', False)
+# Defaults for import (pytest etc.) — actual values set only on direct execution
+HEALTH_ONLY = False
+AUTO_FIX = False
+VERBOSE = False
+WORKTREE_MODE = False
+WORKTREE_ACTION = "list"
+WORKTREE_NAME = None
+AUTO_RESOLVE = True
+REPOS_FILTER = "all"
+SELECT_REPOS = None
+DRY_RUN = False
 
 if __name__ == "__main__":
-    main()  # Only run when executed directly, not on import (e.g., pytest)
-
-DRY_RUN = getattr(args, "dry_run", False)
+    args = parser.parse_args()
+    HEALTH_ONLY = args.health
+    AUTO_FIX = args.fix
+    VERBOSE = args.verbose
+    WORKTREE_MODE = args.worktree
+    WORKTREE_ACTION = args.worktree_action
+    WORKTREE_NAME = args.worktree_name
+    AUTO_RESOLVE = not args.no_resolve
+    REPOS_FILTER = args.repos
+    SELECT_REPOS = args.select
+    DRY_RUN = getattr(args, 'dry_run', False)
+    main()
 
 # Patterns to exclude from staging — session artifacts that create false divergence
 # across machines (different per-machine state, should not follow commits)
