@@ -23,7 +23,7 @@ class TestDRYRUNGuard:
         repo.path = 'P:/fake/repo'
         with patch("sync._has_uncommitted_worktree_changes", return_value=True):
             with patch("sync.DRY_RUN", True):
-                status, msg, detail = _check_repo_health(repo)
+                rel_path, status, detail = _check_repo_health(repo)
         assert status == 'warning'
         assert 'dry-run' in detail
         assert 'dirty' in detail
@@ -42,7 +42,7 @@ class TestStagingExcludePatterns:
 class TestNoneStderr:
     def test_commit_result_stderr_none_not_crashed(self):
         """None stderr should not cause AttributeError on .lower()."""
-        # Code now uses (stderr or "") before .lower() — structural check
+        # Code uses (stderr or "") before .lower() — structural check
         pass
 
 # Run: pytest tests/test_sync.py -v
