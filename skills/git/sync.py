@@ -142,6 +142,10 @@ WORKTREE_NAME = args.worktree_name
 AUTO_RESOLVE = not args.no_resolve
 REPOS_FILTER = args.repos
 SELECT_REPOS = args.select
+DRY_RUN = getattr(args, 'dry_run', False)
+
+if __name__ == "__main__":
+    main()  # Only run when executed directly, not on import (e.g., pytest)
 
 DRY_RUN = getattr(args, "dry_run", False)
 
