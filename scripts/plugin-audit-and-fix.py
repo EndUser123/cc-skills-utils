@@ -84,6 +84,42 @@ def _save_json(path: Path, obj: dict) -> bool:
         return True
     except OSError:
         return False
+
+
+def _extract_command_script_tokens(command: str) -> list[str]:
+    """Return script-like command tokens that should exist on disk.
+
+    This catches commands such as:
+      python P:/path/to/router.py Stop
+      python P:/path/to/hook_runner.py P:/path/to/Stop.py --timeout 10.0
+
+    The old last-token check missed the actual script when extra hook arguments
+    were appended after the executable path.
+    """
+    script_exts = (".py", ".pyw", ".js", ".ts", ".sh", ".bash")
+    tokens = []
+    for raw in command.split():
+        token = raw.strip('"').strip("'")
+        lower = token.lower()
+        if lower in {"python", "python3", "py", "-c", "-m"}:
+            continue
+        if lower.endswith(script_exts):
+            tokens.append(token)
+    return tokens
+
+
+def _resolve_command_script_path(token: str, plugin_root: Path | None = None) -> Path | None:
+    """Resolve a script token to an absolute path when possible."""
+    path_str = token.replace("$CLAUDE_PLUGIN_ROOT", str(plugin_root) if plugin_root else token)
+    path_str = path_str.replace("%CLAUDE_PLUGIN_ROOT%", str(plugin_root) if plugin_root else token)
+    if "$" in path_str or "%" in path_str:
+        return None
+    path = Path(path_str).expanduser()
+    if not path.is_absolute():
+        if plugin_root is None:
+            return None
+        path = plugin_root / path
+    return path
 def audit_plugins(plugins_dir: Path, marketplace_root: str, plugin_filter: Optional[str] = None) -> list[dict]:
     """Audit plugin directories and manifests."""
     results = []
@@ -166,33 +202,15 @@ def audit_plugins(plugins_dir: Path, marketplace_root: str, plugin_filter: Optio
                                     result["errors"].append(f"hooks.{event}[{i}].hooks[{j}] missing 'type' or 'command'")
                                 elif hook.get("type") == "command":
                                     cmd = hook.get("command", "")
-                                    # $CLAUDE_PLUGIN_ROOT/%CLAUDE_PLUGIN_ROOT% is the correct runtime convention.
-                                    # Skip path-existence check — it will expand correctly at hook execution time.
-                                    has_runtime_env = (
-                                        "$CLAUDE_PLUGIN_ROOT" in cmd
-                                        or "%CLAUDE_PLUGIN_ROOT%" in cmd.lower()
-                                    )
                                     if "$$" in cmd:
                                         result["errors"].append(
                                             f"Hook command contains double-dollar (corrupted variable): {cmd[:80]}"
                                         )
-                                    # Extract script path from command (handles "python script.py --args", "node script.js", etc.)
-                                    parts = cmd.split()
-                                    if parts:
-                                        script_path = Path(parts[-1].strip('"').strip("'"))
-                                        # Pre-expand runtime env vars BEFORE relative-path prefix
-                                        # to prevent double-prefix when path is not absolute
-                                        path_str = str(script_path)
-                                        env_vars = {"CLAUDE_PLUGIN_ROOT": str(plugin)}
-                                        for var, replacement in env_vars.items():
-                                            if var in path_str:
-                                                path_str = path_str.replace(f"${var}", replacement)
-                                        script_path = Path(path_str)
-                                        # Resolve relative paths from plugin root (only if still relative after expansion)
-                                        if not script_path.is_absolute():
-                                            script_path = plugin / script_path
-                                        # Only check existence for non-runtime commands (no $CLAUDE_PLUGIN_ROOT/%VAR%)
-                                        if not has_runtime_env and not script_path.exists():
+                                    for script_token in _extract_command_script_tokens(cmd):
+                                        script_path = _resolve_command_script_path(script_token, plugin)
+                                        if script_path is None:
+                                            continue
+                                        if not script_path.exists():
                                             result["errors"].append(f"Hook command file not found: {script_path}")
         # Check for .claude/.state inside skill subdirectories (not at plugin root)
         skills_dir = plugin / "skills"
@@ -350,6 +368,127 @@ def audit_marketplace(marketplace_root: str) -> list[dict]:
                 })
 
     return results
+
+
+
+def audit_registration_state(marketplace_root: str) -> list[dict]:
+    """Check whether marketplace plugins are actually installed and enabled.
+
+    Cross-references three data sources:
+      1. Marketplace plugins/ directory (what exists on disk)
+      2. installed_plugins.json (what Claude Code has cached)
+      3. enabledPlugins in settings.json (what is active in sessions)
+
+    Also flags marketplace entries that are real directories instead of
+    junctions when a source package exists at P:/packages/<name>/.
+
+    Returns a list of finding dicts with 'plugin', 'type', 'issue', and 'fix' keys.
+    """
+    findings: list[dict] = []
+    plugins_dir = Path(marketplace_root) / "plugins"
+    if not plugins_dir.exists():
+        return findings
+
+    # 1. Load installed_plugins.json
+    installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
+    installed_keys: set[str] = set()
+    if installed_path.exists():
+        ok, data = _load_json(installed_path)
+        if ok and data and "plugins" in data:
+            for key, entries in data["plugins"].items():
+                installed_keys.add(key)
+
+    # 2. Load enabledPlugins from settings.json
+    settings_path = Path(os.path.expanduser("~/.claude/settings.json"))
+    enabled_keys: set[str] = set()
+    if settings_path.exists():
+        ok, data = _load_json(settings_path)
+        if ok and data and "enabledPlugins" in data:
+            enabled_keys = set(data["enabledPlugins"].keys())
+
+    # 3. Check each marketplace plugin
+    for entry in sorted(plugins_dir.iterdir()):
+        if entry.name.startswith(".") or not entry.is_dir():
+            continue
+
+        plugin_key = f"{entry.name}@local"
+
+        # Check installed_plugins.json
+        if plugin_key not in installed_keys:
+            findings.append({
+                "plugin": entry.name,
+                "type": "not_installed",
+                "issue": f"'{entry.name}' is in marketplace but NOT in installed_plugins.json - plugin is not loaded",
+                "fix": f"claude plugin install {plugin_key}",
+            })
+
+        # Check enabledPlugins
+        if plugin_key not in enabled_keys:
+            findings.append({
+                "plugin": entry.name,
+                "type": "not_enabled",
+                "issue": f"'{entry.name}' is installed but NOT in enabledPlugins - plugin hooks/skills won't activate",
+                "fix": f"Run /cc-skills-utils:plugin-installer refresh {entry.name}",
+            })
+
+    return findings
+
+
+def audit_settings_hooks(settings_path: Path) -> list[dict]:
+    """Audit command hooks registered in settings.json for missing script files."""
+    results = []
+    if not settings_path.exists():
+        return results
+
+    ok, data = _load_json(settings_path)
+    if not ok or data is None:
+        results.append({"file": settings_path.name, "error": "Invalid JSON"})
+        return results
+
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        results.append({"file": settings_path.name, "error": "hooks must be a dict"})
+        return results
+
+    for lifecycle, entries in hooks.items():
+        if not isinstance(entries, list):
+            results.append({"file": settings_path.name, "error": f"hooks.{lifecycle} must be a list"})
+            continue
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, dict):
+                results.append({"file": settings_path.name, "error": f"hooks.{lifecycle}[{i}] must be a dict"})
+                continue
+            hook_list = entry.get("hooks", [])
+            if not isinstance(hook_list, list):
+                results.append({"file": settings_path.name, "error": f"hooks.{lifecycle}[{i}].hooks must be an array"})
+                continue
+            for j, hook in enumerate(hook_list):
+                if not isinstance(hook, dict):
+                    results.append({"file": settings_path.name, "error": f"hooks.{lifecycle}[{i}].hooks[{j}] must be a dict"})
+                    continue
+                if hook.get("type") != "command":
+                    continue
+                cmd = hook.get("command", "")
+                if "$$" in cmd:
+                    results.append({
+                        "file": settings_path.name,
+                        "error": f"Hook command contains double-dollar (corrupted variable): {cmd[:80]}",
+                        "lifecycle": lifecycle,
+                    })
+                for script_token in _extract_command_script_tokens(cmd):
+                    script_path = _resolve_command_script_path(script_token)
+                    if script_path is None:
+                        continue
+                    if not script_path.exists():
+                        results.append({
+                            "file": settings_path.name,
+                            "error": f"Hook command file not found: {script_path}",
+                            "lifecycle": lifecycle,
+                        })
+
+    return results
+
+
 def _scan_paths(file_path: Path, plugin_name: str) -> list[str]:
     """Scan a file for hardcoded paths."""
     issues = []
@@ -959,28 +1098,33 @@ def audit_source_cache_drift(plugins_dir: Path) -> list[dict]:
 
 
 def audit_intra_source_duplication(plugins_dir: Path) -> list[dict]:
-    """Detect duplicate sibling library directories within a plugin.
+    """Detect duplicate library directories within a plugin at any depth.
 
-    A plugin can contain both ``__lib/`` and ``__lib__/`` (or similar trailing-
-    underscore variants) with overlapping module names.  When a bug is fixed in
-    one copy, the duplicate silently keeps the old code and the wrong copy may
-    load.  This audit surfaces those pairs before they cause regressions.
+    A plugin can contain ``__lib/`` at root AND ``skills/gto/__lib/`` deeper
+    in the tree with overlapping module names.  When a bug is fixed in one copy,
+    the duplicate silently keeps the old code and the wrong copy may load.
+    This audit surfaces those pairs before they cause regressions.
 
     Detection rules
     ---------------
-    1. Canonical root: resolved via os.path.realpath per plugin — never assume
-       packages/<name> has files (the marketplace path is the file-bearing copy).
-    2. Junction / realpath dedup: a set of visited realpaths ensures the same
-       physical directory is never scanned twice.
-    3. Sibling lib detection: for every pair of subdirs within a plugin whose
-       names differ ONLY in trailing underscores (normalised by stripping them),
-       and that both contain at least one .py module, flag as a candidate pair.
-    4. Overlap + divergence: compute the set of relative .py paths present in
-       both dirs.  Emit a finding for any pair with ≥1 overlapping module.
-       Set ``diverged: True`` and list diverged paths if any file has different
-       sha256 in the two dirs.
+    1. **Lib dir discovery**: scan the entire plugin tree for directories whose
+       name contains ``lib`` (e.g. ``__lib``, ``lib``, ``__lib__``).  Non-lib
+       directories (``skills/``, ``hooks/``, ``scripts/``, etc.) are excluded.
+    2. **Cross-level detection**: check ALL pairs of lib dirs regardless of
+       their depth in the tree — not just same-level siblings.
+    3. **Meaningful overlap**: only non-boilerplate ``.py`` files count for
+       overlap (``__init__.py``, ``__main__.py``, ``conftest.py`` and test
+       files are excluded).
+    4. **Divergence**: for overlapping modules, compare SHA-256 hashes.  Report
+       ``diverged: True`` when any file differs.  Unreadable files appear in
+       ``unconfirmed_paths``.
+    5. **Junction awareness**: report ``is_symlink`` status and physical (realpath)
+       paths for each directory.
+    6. **Exclusions**: ``.venv``, ``site-packages``, ``node_modules``, and other
+       dependency directories are excluded to prevent false positives.
+    7. **Junction dedup**: ``visited_realpaths`` ensures the same physical
+       directory is never scanned twice (handles marketplace junctions).
 
-    Excluded from consideration: __pycache__, dot-dirs, test dirs (tests/).
     This function is read-only — it never modifies any file.
     """
     import hashlib
@@ -992,112 +1136,173 @@ def audit_intra_source_duplication(plugins_dir: Path) -> list[dict]:
     visited_realpaths: set[str] = set()
 
     # Directories to skip when looking for lib siblings
-    _SKIP_DIRS = frozenset({"__pycache__", "tests", "test"})
+    _SKIP_DIRS = frozenset({"__pycache__", "tests", "test", "__tests__"})
+    # Filename patterns that indicate test files (excluded from overlap check)
+    _TEST_FILE_SUFFIXES = ("_test.py",)
+    _TEST_FILE_PREFIXES = ("test_", "conftest")
 
-    def _is_candidate_lib_dir(d: Path) -> bool:
-        """True if d is a directory that could be a lib dir (not a skipped dir, not dot)."""
-        if d.name.startswith("."):
-            return False
-        if d.name in _SKIP_DIRS:
-            return False
-        return d.is_dir()
+    # Directory names that indicate non-library content (skills, scripts, etc.)
+    # These are NOT checked for overlap — only lib-ish dirs are.
+    _NON_LIB_MARKERS = frozenset({
+        "skills", "scripts", "agents", "commands", "hooks",
+        "docs", "tests", "test", "__tests__", "benchmarks",
+        ".benchmarks", "references", "resources",
+    })
+    # Module filenames that are boilerplate (not meaningful for overlap detection)
+    _BOILERPLATE_MODULES = frozenset({"__init__.py", "__main__.py", "conftest.py"})
 
-    def _py_modules(lib_dir: Path) -> set[str]:
-        """Return relative paths of .py files under lib_dir (excluding __pycache__)."""
+    def _is_lib_dir(d: Path) -> bool:
+        """True if d looks like a library directory worth checking for duplication.
+
+        A lib dir has a name containing 'lib' (e.g. __lib, lib, __lib__) and
+        is not in the non-lib markers set. This avoids false positives from
+        sibling skills/hooks/scripts that naturally share boilerplate files.
+        """
+        if d.name in _NON_LIB_MARKERS:
+            return False
+        name_lower = d.name.lower()
+        return "lib" in name_lower
+
+    def _meaningful_modules(lib_dir: Path) -> set[str]:
+        """Return relative paths of non-boilerplate .py files under lib_dir.
+
+        Excludes __init__.py, __main__.py, conftest.py, __pycache__,
+        and test files — these are common boilerplate that inflate overlap
+        counts without indicating real duplication.
+        """
         result: set[str] = set()
         for py in lib_dir.rglob("*.py"):
-            # Skip __pycache__ anywhere in path
             if "__pycache__" in py.parts:
+                continue
+            if py.name in _BOILERPLATE_MODULES:
+                continue
+            stem = py.stem
+            if stem.startswith(_TEST_FILE_PREFIXES) or stem.endswith(_TEST_FILE_SUFFIXES):
                 continue
             result.add(str(py.relative_to(lib_dir)))
         return result
 
-    def _sha256(path: Path) -> str:
+    def _sha256(path: Path) -> str | None:
+        """Return hex SHA-256 of file contents, or None if unreadable."""
         h = hashlib.sha256()
         try:
             h.update(path.read_bytes())
         except OSError:
-            return ""
+            return None
         return h.hexdigest()
 
-    def _normalize_name(name: str) -> str:
-        """Strip trailing underscores to get the canonical stem."""
-        return name.rstrip("_")
-
     def _scan_plugin(plugin_dir: Path) -> list[dict]:
-        """Scan a single plugin directory for duplicate sibling lib dirs."""
+        """Scan a single plugin directory for duplicate lib dirs at any depth.
+
+        Discovers ALL directories whose name contains ``lib`` (e.g. ``__lib``,
+        ``lib``, ``__lib__``) anywhere in the plugin tree, then checks every
+        pair for overlapping non-boilerplate .py modules.  This catches both
+        same-level siblings (``__lib/`` vs ``__lib__/``) and cross-level
+        duplication (root ``__lib/`` vs ``skills/gto/__lib/``).
+        """
         local_findings: list[dict] = []
+        seen_pairs: set[tuple[str, str]] = set()
 
-        # Walk the plugin looking for candidate lib dirs at every depth level.
-        # We look at all direct subdirs of each directory within the plugin.
-        # Collect (parent_dir → {normalized_name: [subdir, ...]}) mappings.
-        for root, dirs, _files in os.walk(str(plugin_dir)):
-            root_path = Path(root)
+        # Discover all lib-ish directories in the plugin tree
+        all_lib_dirs: list[tuple[Path, set[str]]] = []
+        for d in plugin_dir.rglob("*"):
+            if not d.is_dir():
+                continue
+            # Skip hidden dirs and known non-lib content
+            if d.name.startswith("."):
+                continue
+            if d.name in _SKIP_DIRS:
+                continue
+            # Skip virtual environments and dependency dirs entirely
+            skip_ancestors = {".venv", "venv", "env", "node_modules", "site-packages",
+                              "__pypackages__", ".tox", ".nox"}
+            if any(part in skip_ancestors for part in d.parts):
+                continue
+            if not _is_lib_dir(d):
+                continue
+            mods = _meaningful_modules(d)
+            if mods:
+                all_lib_dirs.append((d, mods))
 
-            # Skip dot-dirs and __pycache__ globally
-            dirs[:] = [
-                d for d in dirs
-                if not d.startswith(".") and d not in _SKIP_DIRS
-            ]
+        if len(all_lib_dirs) < 2:
+            return local_findings
 
-            # Among dirs at this level, look for trailing-underscore siblings
-            # Group by normalised name
-            by_stem: dict[str, list[str]] = {}
-            for d in dirs:
-                stem = _normalize_name(d)
-                by_stem.setdefault(stem, []).append(d)
-
-            for stem, siblings in by_stem.items():
-                if len(siblings) < 2:
+        # Check every distinct pair for overlapping modules
+        for i in range(len(all_lib_dirs)):
+            for j in range(i + 1, len(all_lib_dirs)):
+                dir_a, mods_a = all_lib_dirs[i]
+                dir_b, mods_b = all_lib_dirs[j]
+                overlap = mods_a & mods_b
+                if not overlap:
                     continue
-                # We have ≥2 dirs with the same normalised stem.
-                # Filter to those that actually contain Python modules.
-                lib_candidates = [
-                    root_path / s for s in siblings
-                    if _is_candidate_lib_dir(root_path / s) and _py_modules(root_path / s)
-                ]
-                if len(lib_candidates) < 2:
+
+                # Deduplicate by pair key
+                rel_a = str(dir_a.relative_to(plugin_dir))
+                rel_b = str(dir_b.relative_to(plugin_dir))
+                pair_key = tuple(sorted([rel_a, rel_b]))
+                if pair_key in seen_pairs:
                     continue
+                seen_pairs.add(pair_key)
 
-                # Compare every distinct pair
-                for i in range(len(lib_candidates)):
-                    for j in range(i + 1, len(lib_candidates)):
-                        dir_a = lib_candidates[i]
-                        dir_b = lib_candidates[j]
-                        mods_a = _py_modules(dir_a)
-                        mods_b = _py_modules(dir_b)
-                        overlap = mods_a & mods_b
-                        if not overlap:
-                            continue
+                # Compute divergence via content hash
+                diverged_paths: list[str] = []
+                unconfirmed_paths: list[str] = []
+                for rel in sorted(overlap):
+                    hash_a = _sha256(dir_a / rel)
+                    hash_b = _sha256(dir_b / rel)
+                    if hash_a is None or hash_b is None:
+                        unconfirmed_paths.append(rel)
+                    elif hash_a != hash_b:
+                        diverged_paths.append(rel)
 
-                        # Compute divergence
-                        diverged_paths: list[str] = []
-                        for rel in sorted(overlap):
-                            hash_a = _sha256(dir_a / rel)
-                            hash_b = _sha256(dir_b / rel)
-                            if hash_a != hash_b:
-                                diverged_paths.append(rel)
+                diverged = len(diverged_paths) > 0
+                has_unconfirmed = len(unconfirmed_paths) > 0
 
-                        diverged = len(diverged_paths) > 0
-                        rel_a = str(dir_a.relative_to(plugin_dir))
-                        rel_b = str(dir_b.relative_to(plugin_dir))
+                # Junction / symlink awareness
+                a_is_junction = dir_a.is_symlink()
+                b_is_junction = dir_b.is_symlink()
+                # Physical (realpath-resolved) paths for actionable debugging
+                a_real = os.path.realpath(str(dir_a))
+                b_real = os.path.realpath(str(dir_b))
 
-                        finding: dict = {
-                            "type": "intra_source_duplication",
-                            "plugin": plugin_dir.name,
-                            "dir_a": rel_a,
-                            "dir_b": rel_b,
-                            "overlap_count": len(overlap),
-                            "diverged": diverged,
-                            "issue": (
-                                f"'{plugin_dir.name}' has sibling lib dirs '{rel_a}' and '{rel_b}' "
-                                f"with {len(overlap)} overlapping module(s)"
-                                + (f" — {len(diverged_paths)} DIVERGED (bug-risk)" if diverged else " — identical")
-                            ),
-                        }
-                        if diverged:
-                            finding["diverged_paths"] = diverged_paths
-                        local_findings.append(finding)
+                risk_level = "HIGH" if diverged else ("MEDIUM" if has_unconfirmed else "LOW")
+                recommendation = (
+                    f"Remove or rename one of '{rel_a}' or '{rel_b}' to eliminate "
+                    f"import shadowing risk. Overlapping modules: {len(overlap)}."
+                )
+                if diverged:
+                    recommendation += f" {len(diverged_paths)} have DIVERGED content — bug risk."
+
+                finding: dict = {
+                    "category": "intra_source_duplication",
+                    "type": "intra_source_duplication",
+                    "plugin": plugin_dir.name,
+                    "dir_a": rel_a,
+                    "dir_b": rel_b,
+                    "dir_a_real": a_real,
+                    "dir_b_real": b_real,
+                    "overlap_count": len(overlap),
+                    "overlap_modules": sorted(overlap)[:10],
+                    "diverged": diverged,
+                    "risk": risk_level,
+                    "recommendation": recommendation,
+                    "issue": (
+                        f"'{plugin_dir.name}' has lib dirs '{rel_a}' and '{rel_b}' "
+                        f"with {len(overlap)} overlapping module(s)"
+                        + (f" — {len(diverged_paths)} DIVERGED (bug-risk)" if diverged else " — identical")
+                        + (f" — {len(unconfirmed_paths)} UNCONFIRMED" if has_unconfirmed else "")
+                    ),
+                }
+                if a_is_junction or b_is_junction:
+                    finding["junction"] = {
+                        "dir_a_is_symlink": a_is_junction,
+                        "dir_b_is_symlink": b_is_junction,
+                    }
+                if diverged:
+                    finding["diverged_paths"] = diverged_paths
+                if has_unconfirmed:
+                    finding["unconfirmed_paths"] = unconfirmed_paths
+                local_findings.append(finding)
 
         return local_findings
 
@@ -1629,6 +1834,13 @@ def main(argv: list[str]) -> int:
         else:
             print(f"{C_GREEN}All source plugins OK.{C_RESET}")
 
+        settings_path = Path(os.path.expanduser("~/.claude/settings.json"))
+        settings_findings = audit_settings_hooks(settings_path)
+        if settings_findings:
+            print(f"{C_RED}Found {len(settings_findings)} settings hook error(s):{C_RESET}")
+            for finding in settings_findings:
+                print(f"  [ERROR] {finding['file']}: {finding['error']}")
+
         # Skill frontmatter audit: name field vs directory name
         print("\nChecking SKILL.md frontmatter name fields...")
         skill_fm_findings = audit_skill_frontmatter(packages_dir)
@@ -1658,6 +1870,22 @@ def main(argv: list[str]) -> int:
                         continue
                     for action in r["actions"]:
                         print(f"  [{r['plugin']}] {action}")
+
+        # Registration state check (installed + enabled)
+        if mp_root:
+            print("\nChecking plugin registration state...")
+            reg_findings = audit_registration_state(mp_root)
+            reg_findings = [f for f in reg_findings if f["plugin"] in {p.name for p in plugin_dirs}]
+            if reg_findings:
+                not_installed = [f for f in reg_findings if f["type"] == "not_installed"]
+                not_enabled = [f for f in reg_findings if f["type"] == "not_enabled"]
+                print(f"{C_YELLOW}Found {len(not_installed)} not installed, {len(not_enabled)} not enabled:{C_RESET}")
+                for f in reg_findings:
+                    tag = {"not_installed": "NOT INSTALLED", "not_enabled": "NOT ENABLED"}[f["type"]]
+                    print(f"  {C_RED}[{tag}]{C_RESET} {f['plugin']}: {f['issue']}")
+                    print(f"    Fix: {f['fix']}")
+            else:
+                print(f"{C_GREEN}All plugins installed and enabled.{C_RESET}")
 
         # Drift check
         print("\nChecking source vs cache drift...")
@@ -1773,6 +2001,7 @@ def main(argv: list[str]) -> int:
             if r.get("plugin") in {p.name for p in plugin_dirs}
             and any("plugin.json" in e or "marketplace.json" in e for e in r.get("errors", []))
         )
+        actionable_errors += len(settings_findings)
         return actionable_errors
 
     resolved_root = args.marketplace_root or os.environ.get("CLAUDE_MARKETPLACE_ROOT")
@@ -1939,13 +2168,17 @@ def main(argv: list[str]) -> int:
         return 0
     print("Auditing plugins...")
     plugin_results = audit_plugins(plugins_dir, mp_root, plugin_filter=args.plugins)
-    error_count = sum(len(r["errors"]) for r in plugin_results)
+    settings_path = Path(os.path.expanduser("~/.claude/settings.json"))
+    settings_findings = audit_settings_hooks(settings_path)
+    error_count = sum(len(r["errors"]) for r in plugin_results) + len(settings_findings)
     warning_count = sum(len(r["warnings"]) for r in plugin_results)
     if error_count > 0 or warning_count > 0:
         print(f"{C_RED}Found {error_count} error(s), {warning_count} warning(s){C_RESET}")
         for r in plugin_results:
             for e in r["errors"]: print(f"  [ERROR] {r['plugin']}: {e}")
             for w in r["warnings"]: print(f"  [WARNING] {r['plugin']}: {w}")
+        for finding in settings_findings:
+            print(f"  [ERROR] {finding['file']}: {finding['error']}")
     else:
         print(f"{C_GREEN}All plugins OK.{C_RESET}")
 
@@ -1980,6 +2213,21 @@ def main(argv: list[str]) -> int:
                 print(f"  [{f['plugin']}] {f['skill']}: name='{f['frontmatter_name']}' vs dir='{f['directory_name']}' — {f['fix']}")
     else:
         print(f"{C_GREEN}All SKILL.md frontmatter fields are present and valid.{C_RESET}")
+
+    # Check plugin registration state (installed + enabled)
+    print("\nChecking plugin registration state...")
+    reg_findings = audit_registration_state(mp_root)
+    if reg_findings:
+        not_installed = [f for f in reg_findings if f["type"] == "not_installed"]
+        not_enabled = [f for f in reg_findings if f["type"] == "not_enabled"]
+        not_junction = [f for f in reg_findings if f["type"] == "not_junction"]
+        print(f"{C_YELLOW}Found {len(not_installed)} not installed, {len(not_enabled)} not enabled, {len(not_junction)} not junctions:{C_RESET}")
+        for f in reg_findings:
+            tag = {"not_installed": "NOT INSTALLED", "not_enabled": "NOT ENABLED", "not_junction": "NOT JUNCTION"}[f["type"]]
+            print(f"  {C_RED}[{tag}]{C_RESET} {f['plugin']}: {f['issue']}")
+            print(f"    Fix: {f['fix']}")
+    else:
+        print(f"{C_GREEN}All plugins installed and enabled.{C_RESET}")
 
     # Check for source/cache drift
     print("\nChecking source vs cache drift...")
@@ -2150,6 +2398,7 @@ def main(argv: list[str]) -> int:
                 all_findings.append({"plugin": r["plugin"], "type": "plugin_error", "kind": "error", "errors": [e]})
             for w in r.get("warnings", []):
                 all_findings.append({"plugin": r["plugin"], "type": "plugin_warning", "kind": "warning", "warnings": [w]})
+        all_findings.extend(settings_findings)
         all_findings.extend(orphan_findings)
         all_findings.extend(skill_fm_findings)
         all_findings.extend(drift_findings)

@@ -14,23 +14,23 @@ Manage, audit, validate, install, and sync all development plugins.
 
 ## Marketplace Architecture
 
-All plugins are junctioned — source at `P:/packages/<name>/`, junction at `P:/packages/.claude-marketplace/plugins/<name>`. Changes to source auto-pick up — no sync needed.
+All plugins live directly in `P:/packages/.claude-marketplace/plugins/<name>/`. This IS the source — no separate source directory, no junctions. After editing plugin files, bump the version and reload to propagate to the version-keyed cache.
 
-**Excluding packages:** Place a `.marketplace-exclude` file in a package directory to exclude it from marketplace junction requirements. The audit will skip it when reporting missing junctions.
+**Excluding packages:** Place a `.marketplace-exclude` file in a package directory to exclude it from marketplace requirements. The audit will skip it.
 
 ## Full Setup (no action specified)
 
 When invoked without an action, run the complete check-fix-verify workflow.
 
-1. **Audit all source packages** — scans `P:/packages/` for all directories with `.claude-plugin/plugin.json`, detects unregistered packages, and checks drift:
+1. **Audit all marketplace plugins** — scans `P:/packages/.claude-marketplace/plugins/` for all directories with `.claude-plugin/plugin.json`, detects unregistered packages, and checks drift:
    ```bash
-   python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize
+   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize
    ```
    The `--summarize` flag pipes results through `summarize_audit.py` automatically, emitting a per-plugin prioritized action list with copy-paste fix commands. Without `--summarize`, the audit outputs raw structured findings only.
 
 ## Sync Rules
 
-Plugins are **junctions** — `P:/packages/<name>/` IS the live source. Cache at `C:\Users\brsth\.claude\plugins\cache\local\<name>\<version>/` is an install mirror.
+Plugins live in the marketplace directory. Cache at `C:\Users\brsth\.claude\plugins\cache\local\<name>\<version>/` is an install mirror.
 
 The audit script uses **quality-aware conflict resolution** when both sides have different content:
 
@@ -51,12 +51,12 @@ The audit script uses **quality-aware conflict resolution** when both sides have
 
 3. **Verify cache is clean**:
    ```bash
-   python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --drift
+   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --drift
    ```
 
    If drift detected, **auto-bump** each drifted plugin to propagate source changes to cache:
    ```bash
-   python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump <name> --marketplace-root "P:/packages/.claude-marketplace"
+   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump <name> --marketplace-root "P:/packages/.claude-marketplace"
    ```
 
    `--bump` runs marketplace update and drift verification automatically — no manual sync needed.
@@ -65,7 +65,7 @@ The audit script uses **quality-aware conflict resolution** when both sides have
 
 4. **Validate** all marketplace plugins:
    ```bash
-   python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace"
+   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace"
    ```
 
 5. **Final sync + report**:
@@ -79,14 +79,14 @@ The audit script uses **quality-aware conflict resolution** when both sides have
 
 ### `/cc-skills-utils:plugin-installer audit [name]` — Audit plugin manifests
 
-With no argument, audits all source packages:
+With no argument, audits all marketplace plugins:
 ```bash
-python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize
 ```
 
 With a plugin name, audits only that plugin:
 ```bash
-python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize --plugins <name>
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize --plugins <name>
 ```
 
 Then refresh:
@@ -99,12 +99,12 @@ claude plugin marketplace update local
 
 With no argument, validates all:
 ```bash
-python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace"
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace"
 ```
 
 With a plugin name, validates only that plugin:
 ```bash
-python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace" --plugins <name>
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace" --plugins <name>
 ```
 
 ### `/cc-skills-utils:plugin-installer install` — Install all marketplace plugins
@@ -112,10 +112,7 @@ python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate
 ```bash
 claude plugin marketplace update local
 ls P:/packages/.claude-marketplace/plugins/
-# For each plugin, check entry type before install:
-# - Junction → source auto-pickup, safe to install
-# - Real dir → warn: non-junction plugin, source changes won't auto-propagate
-#   If source exists at P:/packages/<name>/, suggest converting to junction instead
+# For each plugin directory:
 claude plugin install <name>@local
 claude plugin marketplace update local
 ```
@@ -124,34 +121,22 @@ claude plugin marketplace update local
 claude plugin list
 ```
 
-**Non-junction detection:** If a marketplace entry is a real directory AND the source exists at `P:/packages/<name>/`, the plugin should be a junction instead. Flag it and suggest:
-```bash
-# Convert real-dir to junction:
-rm -rf P:/packages/.claude-marketplace/plugins/<name>
-New-Item -ItemType Junction -Path "P:/packages/.claude-marketplace/plugins/<name>" -Target "P:/packages/<name>"
-```
+### `/cc-skills-utils:plugin-installer sync` — Sync plugin to marketplace
 
-### `/cc-skills-utils:plugin-installer sync` — Sync cc-skills-utils source to marketplace
-
-cc-skills-utils is a **junction** — source changes auto-pick up, no manual sync needed. If the junction is missing, recreate it:
-
-```bash
-New-Item -ItemType Junction -Path "P:/packages/.claude-marketplace/plugins/cc-skills-utils" -Target "P:/packages/cc-skills-utils"
-```
+Plugins live directly in the marketplace. No sync needed — edit files in place, then bump version to propagate to cache.
 
 ### `/cc-skills-utils:plugin-installer add <name>` — Add a plugin to marketplace
 
-**Check before creating a junction:**
-1. Check if entry already exists: `ls -la P:/packages/.claude-marketplace/plugins/<name>`
-2. If it's a junction → plugin already in marketplace, skip creation
-3. If it's a real directory → warn user, junction would conflict
-4. If no entry exists → ask user before creating junction
+**Check before creating:**
+1. Check if entry already exists: `ls P:/packages/.claude-marketplace/plugins/<name>`
+2. If it exists → plugin already in marketplace, skip
+3. If no entry exists → create the plugin directory with `.claude-plugin/plugin.json`
 
-Adds a plugin via junction. Assumes source at `P:/packages/<name>/`:
+Creates a new plugin in the marketplace directory:
 
 ```bash
-# 1. Create junction
-New-Item -ItemType Junction -Path "P:/packages/.claude-marketplace/plugins/<name>" -Target "P:/packages/<name>"
+# 1. Create plugin directory
+mkdir -p "P:/packages/.claude-marketplace/plugins/<name>/.claude-plugin"
 
 # 2. Register in BOTH marketplace.json index files (install fails without this)
 python3 -c "
@@ -159,7 +144,7 @@ import json
 from pathlib import Path
 
 name = '<name>'
-src = Path('P:/packages') / name
+src = Path('P:/packages/.claude-marketplace/plugins') / name
 manifest = json.loads((src / '.claude-plugin/plugin.json').read_text())
 entry = {
     'name': manifest['name'],
@@ -195,13 +180,11 @@ claude plugin list
 
 ### `/cc-skills-utils:plugin-installer remove <name>` — Remove a plugin from marketplace
 
-Removes the junction from marketplace and uninstalls the plugin. Does NOT delete the source.
-
-**Check first:** `ls -la P:/packages/.claude-marketplace/plugins/<name>` to confirm it's a junction (not a real directory).
+Removes the plugin directory from marketplace and uninstalls it.
 
 ```bash
-# 1. Remove junction
-Remove-Item "P:/packages/.claude-marketplace/plugins/<name>" -Force
+# 1. Remove plugin directory
+Remove-Item "P:/packages/.claude-marketplace/plugins/<name>" -Recurse -Force
 
 # 2. Remove from BOTH marketplace.json index files
 python3 -c "
@@ -296,7 +279,7 @@ claude plugin install <name>@local
 Bumps the patch version (e.g., `2.0.0` → `2.0.1`) in all version files AND updates `installed_plugins.json` so Claude Code loads the new version:
 
 ```bash
-python3 "P:/packages/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump <name> --marketplace-root "P:/packages/.claude-marketplace"
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump <name> --marketplace-root "P:/packages/.claude-marketplace"
 ```
 
 **What --bump does automatically:**
@@ -311,7 +294,7 @@ After bumping, reload:
 /reload-plugins
 ```
 
-**When to use**: After editing any plugin source files under `P:/packages/<name>/` that should propagate to the running session. The plugin system loads from version-keyed cache, not source — without a version bump, changes are invisible.
+**When to use**: After editing any plugin files under `P:/packages/.claude-marketplace/plugins/<name>/` that should propagate to the running session. The plugin system loads from version-keyed cache, not source — without a version bump, changes are invisible.
 
 ## Troubleshooting
 
