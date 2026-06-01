@@ -43,12 +43,13 @@ def _make_cache(cache_root: Path, name: str, version: str, content: str = "# mys
     return cache
 
 
-def _patch_expanduser(cache_root: Path, installed_path: Path | None = None):
+def _patch_expanduser(cache_root: Path, installed_path: Path | None = None, settings_path: Path | None = None):
     """Patch os.path.expanduser to redirect plugin cache paths to test fixtures.
 
     Redirects:
       ~/.claude/plugins/cache/local  → cache_root
       ~/.claude/plugins/installed_plugins.json → installed_path (if provided)
+      ~/.claude/settings.json → settings_path (if provided)
     """
     original = os.path.expanduser
 
@@ -57,6 +58,8 @@ def _patch_expanduser(cache_root: Path, installed_path: Path | None = None):
             return str(cache_root)
         if installed_path is not None and path == "~/.claude/plugins/installed_plugins.json":
             return str(installed_path)
+        if settings_path is not None and path == "~/.claude/settings.json":
+            return str(settings_path)
         return original(path)
 
     # Patch on the module's bound os reference so the module's import picks it up
@@ -566,3 +569,77 @@ class TestAuditIntraSourceDuplication:
         assert len(dup) == 1, (
             f"Expected 1 finding (dedup prevented double-scan), got {len(dup)}: {dup}"
         )
+
+
+class TestAuditSettingsHooks:
+    """Tests for settings.json hook-command validation."""
+
+    def test_detects_missing_router_entrypoint_before_event_argument(self, tmp_path):
+        """A settings hook like 'python .../router.py Stop' should validate router.py, not Stop."""
+        audit_settings_hooks = _mod.audit_settings_hooks
+
+        settings_path = tmp_path / "settings.json"
+        router_path = tmp_path / "plugins" / "cc-model-router" / "__lib" / "router.py"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": ".*",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f'python "{router_path}" Stop',
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        findings = audit_settings_hooks(settings_path)
+
+        assert len(findings) == 1
+        assert findings[0]["file"] == "settings.json"
+        assert "router.py" in findings[0]["error"]
+
+    def test_main_packages_root_flags_missing_settings_router(self, tmp_path):
+        """The installer audit should fail when live settings.json points at a missing router."""
+        packages = tmp_path / "packages"
+        pkg = _make_plugin(packages, name="cc-model-router", version="0.1.1")
+        (pkg / "hooks").mkdir()
+        (pkg / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {}}))
+        marketplace = packages / ".claude-marketplace"
+        (marketplace / "plugins").mkdir(parents=True)
+        (marketplace / "marketplace.json").write_text(json.dumps({"plugins": []}))
+        (marketplace / ".claude-plugin").mkdir(parents=True)
+        (marketplace / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": []}))
+
+        settings_path = tmp_path / "settings.json"
+        settings_path.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "Stop": [
+                            {
+                                "matcher": ".*",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": f'python "{packages / "cc-model-router" / "__lib" / "router.py"}" Stop',
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            )
+        )
+
+        with _patch_expanduser(tmp_path / "cache", settings_path=settings_path):
+            exit_code = main(["prog", "--packages-root", str(packages)])
+
+        assert exit_code == 1

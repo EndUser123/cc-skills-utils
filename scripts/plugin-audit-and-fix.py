@@ -1320,6 +1320,22 @@ def audit_intra_source_duplication(plugins_dir: Path) -> list[dict]:
     return findings
 
 
+def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = None) -> list[dict]:
+    """Check hook correctness: registration vs implementation, orphaned files, malformed JSON.
+
+    See _hook_correctness_audit.py for the full implementation.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_hook_correctness_audit",
+        Path(__file__).parent / "_hook_correctness_audit.py",
+    )
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    sys.modules["_hook_correctness_audit"] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    return mod.audit_hook_correctness(plugins_dir, plugin_filter)
+
+
 def audit_name_conflicts() -> list[dict]:
     """Check for conflicting skill and command names across global and local skill/command dirs."""
     findings = []
@@ -2276,6 +2292,29 @@ def main(argv: list[str]) -> int:
                     print(f"    ... +{len(f['diverged_paths']) - 5} more")
     else:
         print(f"{C_GREEN}No intra-source lib directory duplication found.{C_RESET}")
+
+    # Check hook correctness (registration, orphaned files, duplicate registrations)
+    print("\nChecking hook correctness...")
+    hook_findings = audit_hook_correctness(plugins_dir, args.plugins)
+    if hook_findings:
+        syntax_errors = [f for f in hook_findings if f["type"] == "syntax_error"]
+        orphaned = [f for f in hook_findings if f["type"] == "orphaned_hook_file"]
+        duplicates = [f for f in hook_findings if f["type"] == "duplicate_hook_registration"]
+        missing_files = [f for f in hook_findings if f["type"] == "hook_command_file_missing"]
+        malformed = [f for f in hook_findings if f["type"] in ("malformed_hooks_json", "hooks_json_unreadable")]
+        other = [f for f in hook_findings if f["type"] not in (
+            "syntax_error", "orphaned_hook_file", "duplicate_hook_registration",
+            "hook_command_file_missing", "malformed_hooks_json", "hooks_json_unreadable",
+        )]
+        total = len(hook_findings)
+        print(f"{C_RED}Found {total} hook correctness issue(s) "
+              f"({len(syntax_errors)} syntax, {len(malformed)} malformed, "
+              f"{len(missing_files)} missing_file, {len(orphaned)} orphaned, "
+              f"{len(duplicates)} duplicate):{C_RESET}")
+        for f in hook_findings:
+            print(f"  [{f['type']}] [{f['plugin']}] {f.get('issue', f.get('message', ''))}")
+    else:
+        print(f"{C_GREEN}All hooks are correctly registered and implemented.{C_RESET}")
 
     if args.auto_fix:
         fix_results = auto_fix_plugins(plugins_dir, args.delete_hooks)
