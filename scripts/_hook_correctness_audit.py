@@ -19,11 +19,18 @@ from pathlib import Path
 from typing import Optional
 
 
+# Only flag bare underscore aliases: `import x as _`  (Python 3.14 SyntaxError).
+# `import x as _s` / `import x as _os` are valid — do NOT flag them.
 _IMPORT_ALIAS_PATTERNS = [
-    re.compile(r"^import\s+\w+\s+as\s+_\w+", re.MULTILINE),
-    re.compile(r"^from\s+\w+\s+import\s+.*\s+as\s+_\w+", re.MULTILINE),
+    re.compile(r"^import\s+\w+\s+as\s+_(?!\w)", re.MULTILINE),
+    re.compile(r"^from\s+\w+\s+import\s+.*\s+as\s+_(?!\w)", re.MULTILINE),
 ]
 _STALE_ALIAS_REFS = re.compile(r"\b_P\b|_s\.path\b|_l\b")
+# Detects whether the bootstrap block defines the old aliases — if so, post-bootstrap
+# references to _P / _s / _l are not dangling; the aliases are still in scope.
+_BOOTSTRAP_DEFINES_ALIAS = re.compile(
+    r"import\s+sys\s+as\s+_\w+|from\s+pathlib\s+import\s+Path\s+as\s+_\w+"
+)
 
 
 def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = None) -> list[dict]:
@@ -65,21 +72,29 @@ def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = Non
                     "fix_available": True,
                 })
 
-        # 3. Dangling alias refs after bootstrap
+        # 3. Dangling alias refs after bootstrap.
+        # Only flag when the bootstrap uses the *new* canonical form (plain
+        # `import sys`) and NOT the old alias style.  If the bootstrap block
+        # itself defines `import sys as _s` / `from pathlib import Path as _P`
+        # the aliases are still in scope — post-bootstrap uses are valid.
         bootstrap_end_pos = txt.find("# --- end bootstrap ---")
-        if bootstrap_end_pos >= 0:
-            after_bootstrap = txt[bootstrap_end_pos:]
-            for m in _STALE_ALIAS_REFS.finditer(after_bootstrap):
-                line_no = txt[:bootstrap_end_pos + m.start()].count("\n") + 1
-                line = txt.splitlines()[line_no - 1].strip()
-                results.append({
-                    "plugin": plugin_name,
-                    "file": str(fpath.relative_to(plugins_dir.parent.parent)),
-                    "type": "dangling_alias",
-                    "message": f"Unresolved alias reference: {line}",
-                    "line": line_no,
-                    "fix_available": True,
-                })
+        bootstrap_start_pos = txt.find("# --- plugin bootstrap ---")
+        if bootstrap_end_pos >= 0 and bootstrap_start_pos >= 0:
+            bootstrap_block = txt[bootstrap_start_pos:bootstrap_end_pos]
+            if not _BOOTSTRAP_DEFINES_ALIAS.search(bootstrap_block):
+                after_bootstrap = txt[bootstrap_end_pos:]
+                for m in _STALE_ALIAS_REFS.finditer(after_bootstrap):
+                    abs_pos = bootstrap_end_pos + m.start()
+                    ref_line_no = txt[:abs_pos].count("\n") + 1
+                    ref_line = txt.splitlines()[ref_line_no - 1].strip()
+                    results.append({
+                        "plugin": plugin_name,
+                        "file": str(fpath.relative_to(plugins_dir.parent.parent)),
+                        "type": "dangling_alias",
+                        "message": f"Unresolved alias reference: {ref_line}",
+                        "line": ref_line_no,
+                        "fix_available": True,
+                    })
 
         # 4. normalize_stdout inside bootstrap block
         bootstrap_start = txt.find("# --- plugin bootstrap ---")
@@ -117,13 +132,50 @@ def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = Non
                                 "file": str(fpath.relative_to(plugins_dir.parent.parent)),
                                 "type": "schema_allow",
                                 "message": "Stop hook outputs 'allow' instead of 'approve' — schema violation",
-                                "line": line_no,
+                                "line": None,
                                 "fix_available": False,  # fixed at hook_runner level
                             })
                     except json.JSONDecodeError:
                         pass
             except Exception:
                 pass
+
+        # 6. dirname-derived global-resource path (plugin-migration trap).
+        # A hook that has the bootstrap `_hooks_dir` but builds a path to a
+        # GLOBAL resource dir (config/rules/templates) from a *different*
+        # dirname(__file__)-derived var resolves to its own hooks/<phase>/
+        # subdir after migration — so the resource is silently never found
+        # (e.g. directory_policy loaded an empty allowlist and blocked every
+        # external write). Use `_hooks_dir` instead.
+        if "_hooks_dir" in txt:
+            for am in re.finditer(
+                r"(\w+)\s*=\s*(?:os\.path\.dirname\(os\.path\.abspath\(__file__\)\)"
+                r"|(?:Path|PathLib)\(__file__\)\.resolve\(\)\.parent)",
+                txt,
+            ):
+                var = am.group(1)
+                if var == "_hooks_dir":
+                    continue
+                join_re = re.compile(
+                    rf'\b{re.escape(var)}\b\s*\)?\s*/\s*"(?:config|rules|templates)"'
+                    rf'|os\.path\.join\(\s*{re.escape(var)}\s*,\s*"(?:config|rules|templates)"'
+                )
+                jm = join_re.search(txt)
+                if jm:
+                    results.append({
+                        "plugin": plugin_name,
+                        "file": str(fpath.relative_to(plugins_dir.parent.parent)),
+                        "type": "dirname_global_resource_path",
+                        "message": (
+                            f"Global resource path built from '{var}' (= dirname(__file__)) "
+                            f"instead of bootstrap '_hooks_dir'. After plugin migration this "
+                            f"resolves to the hook's own subdir and the resource is silently "
+                            f"not found. Use _hooks_dir."
+                        ),
+                        "line": txt[:jm.start()].count("\n") + 1,
+                        "fix_available": False,
+                    })
+                    break
 
         return results
 
@@ -144,6 +196,28 @@ def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = Non
                     continue
                 for finding in _check_file(fpath, plugin.name):
                     findings.append(finding)
+
+        # Router block-reason check: a dispatch router that blocks via exit(2)
+        # MUST write the reason to stderr — the harness shows ONLY stderr for
+        # exit-2 blocks, so reason-on-stdout yields a bare "Blocked by hook"
+        # (see blocking_stderr_standard). Guards against regenerated routers
+        # losing the _emit_block stderr path.
+        for router in plugin.rglob("__lib/router.py"):
+            try:
+                rtxt = router.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if "sys.exit(2)" in rtxt and "sys.stderr" not in rtxt:
+                findings.append({
+                    "plugin": plugin.name,
+                    "file": str(router.relative_to(plugins_dir.parent.parent)),
+                    "type": "block_reason_not_on_stderr",
+                    "message": "Router blocks via exit(2) but never writes stderr — "
+                               "block reason will be lost (bare 'Blocked by hook'). "
+                               "Route the block through an _emit_block() helper.",
+                    "line": None,
+                    "fix_available": False,
+                })
 
     return findings
 

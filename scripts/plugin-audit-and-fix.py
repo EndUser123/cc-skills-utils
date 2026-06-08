@@ -1731,6 +1731,109 @@ def bump_version(plugins_dir: Path, marketplace_root: str, plugin_name: str) -> 
     return result
 
 
+# NOTE: build_hook_inventory/render_hook_inventory are new — grep confirmed no
+# existing hook-inventory implementation in scripts/ (only the call site below).
+_INV_EVENTS = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
+               "SubagentStop", "SessionStart", "SessionEnd", "PreCompact", "Notification"]
+_INV_HOOK_LIST_RE = re.compile(r"^\s*([A-Z][A-Z0-9_]*_HOOKS)\s*=\s*\[(.*?)\]", re.DOTALL | re.MULTILINE)
+_INV_STR_RE = re.compile(r"""['\"]([^'\"]+\.py)['\"]""")
+_INV_ROUTER_RE = re.compile(r'([^"\s]+__lib[/\\]router\.py)')
+_INV_HOOKS_VAR = {"PreToolUse": "PRETOOLUSE_HOOKS", "Stop": "STOP_HOOKS",
+                  "UserPromptSubmit": "UPS_HOOKS", "PostToolUse": "POSTTOOLUSE_HOOKS",
+                  "SessionStart": "SESSIONSTART_HOOKS"}
+
+
+def _inv_classify(command: str) -> str:
+    if "CLAUDE_PLUGIN_ROOT" in command:
+        return "CACHE"
+    if "/packages/" in command.replace("\\", "/"):
+        return "SOURCE"
+    return "LOCAL"
+
+
+def _inv_router_dispatch(router_path: Path) -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    try:
+        txt = router_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    for m in _INV_HOOK_LIST_RE.finditer(txt):
+        out[m.group(1)] = _INV_STR_RE.findall(m.group(2))
+    return out
+
+
+def build_hook_inventory(plugins_root: Path) -> dict:
+    """Unified map of every hook entry point per event (settings + plugin hooks.json)."""
+    settings_files = [
+        Path(os.path.expanduser("~/.claude/settings.json")),
+        Path("P:/.claude/settings.json"),
+        Path("P:/.claude/settings.local.json"),
+    ]
+    settings: dict[str, list[dict]] = {e: [] for e in _INV_EVENTS}
+    for sf in settings_files:
+        if not sf.exists():
+            continue
+        try:
+            data = json.loads(sf.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for event, entries in (data.get("hooks") or {}).items():
+            settings.setdefault(event, [])
+            for entry in entries or []:
+                matcher = entry.get("matcher", "")
+                for h in entry.get("hooks", []) or []:
+                    cmd = h.get("command", "")
+                    rec = {"source_file": sf.name, "matcher": matcher,
+                           "command": cmd, "load": _inv_classify(cmd), "dispatched": []}
+                    rm = _INV_ROUTER_RE.search(cmd.replace("\\", "/"))
+                    if rm:
+                        var = _INV_HOOKS_VAR.get(event)
+                        disp = _inv_router_dispatch(Path(rm.group(1)))
+                        rec["dispatched"] = disp.get(var, []) if var else []
+                    settings[event].append(rec)
+    plugin_hj: dict[str, list[dict]] = {e: [] for e in _INV_EVENTS}
+    for hj in Path(plugins_root).glob("*/hooks/hooks.json"):
+        plugin = hj.parent.parent.name
+        try:
+            data = json.loads(hj.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for event, entries in (data.get("hooks") or {}).items():
+            plugin_hj.setdefault(event, [])
+            for entry in entries or []:
+                matcher = entry.get("matcher", "")
+                for h in entry.get("hooks", []) or []:
+                    cmd = h.get("command", "")
+                    name = (_INV_STR_RE.findall(cmd) or [cmd])[-1]
+                    plugin_hj[event].append({"plugin": plugin, "matcher": matcher,
+                                             "hook": Path(name).name, "load": _inv_classify(cmd)})
+    return {"settings": settings, "plugin_hooks_json": plugin_hj}
+
+
+def render_hook_inventory(inv: dict, only_event: str | None = None) -> str:
+    lines = ["# Hook Inventory", ""]
+    events = [only_event] if only_event else _INV_EVENTS
+    for event in events:
+        s_entries = inv["settings"].get(event, [])
+        p_entries = inv["plugin_hooks_json"].get(event, [])
+        if not s_entries and not p_entries:
+            continue
+        lines.append(f"\n## {event}")
+        if s_entries:
+            lines.append("\n**settings.json entry points (ordered):**")
+            for r in s_entries:
+                lines.append(f"- [{r['load']}] ({r['source_file']}, matcher=`{r['matcher']}`) `{r['command']}`")
+                for leaf in r.get("dispatched", []):
+                    lines.append(f"    -> {leaf}")
+        if p_entries:
+            dispatched = {leaf for r in s_entries for leaf in r.get("dispatched", [])}
+            lines.append("\n**plugin hooks.json registrations:**")
+            for r in p_entries:
+                dup = "  [!] DUAL (also dispatched by a settings router)" if r["hook"] in dispatched else ""
+                lines.append(f"- [{r['load']}] {r['plugin']}: {r['hook']} (matcher=`{r['matcher']}`){dup}")
+    return "\n".join(lines)
+
+
 def main(argv: list[str]) -> int:
     import argparse
     parser = argparse.ArgumentParser(description="Audit and fix Claude Code plugins")
@@ -1749,7 +1852,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--no-fix-paths", action="store_true", help="Skip hardcoded path auto-fix (default: on)")
     parser.add_argument("--packages-root", default=None, help="Scan source packages directory directly (e.g., P:\\\\packages/)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument("--inventory", action="store_true", help="Print the unified hook entry-point inventory (what hooks run per event) and exit")
+    parser.add_argument("--inventory-event", metavar="EVENT", help="Limit --inventory to one event (e.g. Stop, PreToolUse)")
     args = parser.parse_args(argv[1:])
+
+    if args.inventory or args.inventory_event:
+        root = Path(args.packages_root) if args.packages_root else Path(__file__).resolve().parent.parent.parent
+        print(render_hook_inventory(build_hook_inventory(root), args.inventory_event))
+        return 0
     script_path = __file__ if "__file__" in dir() else "plugin-audit-and-fix.py"
 
     # Source packages scan mode: scan P:\\\\packages/ directly
