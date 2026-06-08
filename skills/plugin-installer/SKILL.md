@@ -63,6 +63,21 @@ The audit script uses **quality-aware conflict resolution** when both sides have
 
    Skip bump only for plugins with **conflicts** (flagged during step 1) — those need manual review first.
 
+3.5. **Bump every plugin the audit modified** (even if no drift was reported):
+
+   The drift check only compares content hashes — it does not catch config-file edits that change runtime behavior without changing bytes the cache considers drifted. The audit's `--auto-fix` step can also write to plugin source files (orphaned junctions, malformed `hooks.json`, `marketplace.json` registration), and those changes are also invisible to the runtime until a version bump creates a new cache dir.
+
+   Collect the list of plugins the audit touched (anything with auto-fix actions emitted in step 1) and bump each one, even if step 3 reported zero drift:
+   ```bash
+   for plugin in <list-of-touched-plugins>; do
+     python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --bump "$plugin" --marketplace-root "P:/packages/.claude-marketplace"
+   done
+   ```
+
+   If step 1 ran without `--auto-fix` (audit-only), or the audit reported no actions for any plugin, this step is a no-op and you can skip it.
+
+   **Why this is step 3.5 and not part of `--auto-fix` itself:** A version bump is a semver event — it writes to `plugin.json`, both `marketplace.json` files, and `installed_plugins.json`, and creates a new cache directory. Bumping without a reason pollutes git history and version metadata. The audit's auto-fix changes are the reason here, and the bump must follow them, but it does not need to happen on every read-only audit run.
+
 4. **Validate** all marketplace plugins:
    ```bash
    python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace"
@@ -106,6 +121,37 @@ With a plugin name, validates only that plugin:
 ```bash
 python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --validate --marketplace-root "P:/packages/.claude-marketplace" --plugins <name>
 ```
+
+### `/cc-skills-utils:plugin-installer inventory [event]` — Hook entry-point map
+
+The single source of truth for **what hooks run for each event**. Enumerates every
+entry point across global + project `settings.json` and all plugin `hooks.json`,
+expands each dispatch router's leaf list, and tags every command `SOURCE` (absolute
+packages path, edits live), `CACHE` (`$CLAUDE_PLUGIN_ROOT`, needs bump+reload), or
+`LOCAL`. Flags leaves registered in **both** a settings router and a plugin
+`hooks.json` as `[!] DUAL` (they fire twice).
+
+```bash
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --inventory
+# Limit to one event:
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --inventory-event Stop
+```
+
+Use this **first** when diagnosing a block ("which hook denied this?") instead of
+hand-assembling the chain from settings.json + every hooks.json.
+
+### Hook-correctness checks (run by `audit`)
+
+`audit` (via `_hook_correctness_audit.py`) flags, in addition to syntax/import issues:
+
+- **`block_reason_not_on_stderr`** — a `__lib/router.py` that blocks via `sys.exit(2)`
+  but never writes `sys.stderr`. The harness shows ONLY stderr on exit-2, so the block
+  reason is lost (bare "Blocked by hook"). Route blocks through an `_emit_block()` helper.
+- **`dirname_global_resource_path`** — a hook that builds a `config/rules/templates`
+  path from a `dirname(__file__)`-derived var instead of the bootstrap `_hooks_dir`.
+  After plugin migration this resolves to the hook's own `hooks/<phase>/` subdir, so the
+  resource is silently never found (this is what left directory_policy's allowlist empty
+  and blocked every external write). Use `_hooks_dir`.
 
 ### `/cc-skills-utils:plugin-installer install` — Install all marketplace plugins
 

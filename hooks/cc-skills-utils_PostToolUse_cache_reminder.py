@@ -150,7 +150,7 @@ def main() -> None:
         sys.exit(0)
 
     tool_name = data.get("tool_name", "")
-    if tool_name != "Write":
+    if tool_name not in ("Write", "Edit", "MultiEdit"):
         sys.exit(0)
 
     tool_input = data.get("tool_input", {})

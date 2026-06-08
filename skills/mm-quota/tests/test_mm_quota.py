@@ -1,0 +1,236 @@
+"""Tests for mm_quota.py — Layer 1 short-circuit and Layer 3 log parsing.
+
+Self-contained: no conftest, no shared fixtures. Each test sets up its own
+inputs and asserts directly on the function output.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+# Add scripts dir to import path so the test can import mm_quota directly
+SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+sys.path.insert(0, str(SCRIPTS))
+
+import mm_quota  # noqa: E402
+
+
+# --- Layer 1: env-var short-circuit -----------------------------------------
+
+
+def test_layer1_skips_when_cookie_unset(tmp_path, monkeypatch):
+    """No MINIMAX_CONSOLE_COOKIE → returns skipped, never imports playwright."""
+    fake_env_path = tmp_path / "no_cookie.env"
+    fake_env_path.write_text("ANTHROPIC_AUTH_TOKEN=sk-test\n", encoding="utf-8")
+    # Also make sure monkeypatch doesn't have a stray env var
+    monkeypatch.delenv("MINIMAX_CONSOLE_COOKIE", raising=False)
+
+    result = mm_quota._layer1_console_scrape(
+        mm_quota._load_env(fake_env_path)
+    )
+    assert result["source"] == "skipped"
+    assert "MINIMAX_CONSOLE_COOKIE" in result["reason"]
+    # Critical: this path must never import playwright (it might not be installed)
+    # If it tried to import and failed, we'd get "playwright not installed" instead.
+
+
+def test_layer1_skips_when_playwright_missing(monkeypatch, tmp_path):
+    """Cookie set but playwright import fails → returns skipped, not crash."""
+    fake_env_path = tmp_path / "has_cookie.env"
+    fake_env_path.write_text("MINIMAX_CONSOLE_COOKIE=fake-session-value\n", encoding="utf-8")
+    env = mm_quota._load_env(fake_env_path)
+
+    # Force the import to fail by hiding playwright from sys.modules
+    monkeypatch.setitem(sys.modules, "playwright", None)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
+
+    result = mm_quota._layer1_console_scrape(env)
+    assert result["source"] == "skipped"
+    assert "playwright" in result["reason"].lower()
+
+
+# --- Layer 3: log parsing ----------------------------------------------------
+
+
+def test_layer3_probe_only_when_log_missing(monkeypatch, tmp_path):
+    """No log file on disk → returns probe_only with non-negative ints.
+
+    This test does NOT require a real API call — we monkeypatch requests.post
+    to return a controlled response.
+    """
+    # Point _resolve_session_log at a path that won't exist
+    fake_log = tmp_path / "no_such_log.jsonl"
+    # Build a minimal env with the API key
+    env = {"ANTHROPIC_AUTH_TOKEN": "sk-test"}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"usage": {"input_tokens": 7, "output_tokens": 3}, "id": "x"}
+
+    monkeypatch.setattr(mm_quota.requests, "post", lambda *a, **kw: _FakeResp())
+
+    result = mm_quota._layer3_session_tokens(env, fake_log)
+    assert result["source"] == "probe_only"
+    assert result["input"] == 7
+    assert result["output"] == 3
+    assert result["from_log_calls"] == 0
+    assert "probe_error" not in result
+
+
+def test_layer3_sums_existing_log(tmp_path, monkeypatch):
+    """Pre-existing JSONL log with two records → input/output are summed."""
+    log = tmp_path / "calls.jsonl"
+    log.write_text(
+        json.dumps({"usage": {"input_tokens": 100, "output_tokens": 50}}) + "\n"
+        + json.dumps({"usage": {"input_tokens": 200, "output_tokens": 75}}) + "\n",
+        encoding="utf-8",
+    )
+    env = {"ANTHROPIC_AUTH_TOKEN": "sk-test"}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"usage": {"input_tokens": 1, "output_tokens": 1}, "id": "x"}
+
+    monkeypatch.setattr(mm_quota.requests, "post", lambda *a, **kw: _FakeResp())
+
+    result = mm_quota._layer3_session_tokens(env, log)
+    # 100+200+1 = 301 in; 50+75+1 = 126 out
+    assert result["source"] == "log+probe"
+    assert result["from_log_input"] == 300
+    assert result["from_log_output"] == 125
+    assert result["probe_input"] == 1
+    assert result["probe_output"] == 1
+    assert result["input"] == 301
+    assert result["output"] == 126
+    assert result["from_log_calls"] == 2
+
+
+def test_layer3_tolerates_malformed_log_lines(tmp_path, monkeypatch):
+    """Garbage lines in the log are skipped, valid lines still summed."""
+    log = tmp_path / "mixed.jsonl"
+    log.write_text(
+        "this is not json\n"
+        + json.dumps({"usage": {"input_tokens": 10, "output_tokens": 5}}) + "\n"
+        + '{"usage": not valid json}\n'
+        + json.dumps({"usage": {"input_tokens": 20, "output_tokens": 0}}) + "\n",
+        encoding="utf-8",
+    )
+    env = {"ANTHROPIC_AUTH_TOKEN": "sk-test"}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"usage": {"input_tokens": 0, "output_tokens": 0}, "id": "x"}
+
+    monkeypatch.setattr(mm_quota.requests, "post", lambda *a, **kw: _FakeResp())
+
+    result = mm_quota._layer3_session_tokens(env, log)
+    # Only the two valid records sum: 10+20 = 30 in, 5+0 = 5 out
+    assert result["from_log_input"] == 30
+    assert result["from_log_output"] == 5
+    assert result["from_log_calls"] == 2
+
+
+def test_layer3_skips_when_no_api_key(tmp_path):
+    """ANTHROPIC_AUTH_TOKEN missing → returns skipped, never calls requests."""
+    env: dict = {}  # no API key
+    log = tmp_path / "any.jsonl"
+    result = mm_quota._layer3_session_tokens(env, log)
+    assert result["source"] == "skipped"
+    assert "ANTHROPIC_AUTH_TOKEN" in result["reason"]
+
+
+def test_layer3_captures_probe_error(tmp_path, monkeypatch):
+    """Network/API error during probe → result has probe_error, doesn't crash."""
+    log = tmp_path / "x.jsonl"
+    env = {"ANTHROPIC_AUTH_TOKEN": "sk-test"}
+
+    def _boom(*a, **kw):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(mm_quota.requests, "post", _boom)
+    result = mm_quota._layer3_session_tokens(env, log)
+    # No log content, no probe content, but we get an error annotation
+    assert result["input"] == 0
+    assert result["output"] == 0
+    assert "probe_error" in result
+    assert "connection refused" in result["probe_error"]
+
+
+# --- Output formatting smoke tests ------------------------------------------
+
+
+def test_format_output_console_scrape_path():
+    """Layer 1 success → output shows real values, no fallback block."""
+    layer1 = {
+        "source": "console_scrape",
+        "five_hour_pct": 10,
+        "five_hour_reset": "resets in 4 hr 5 min",
+        "weekly": "Unlimited",
+        "monthly": "Total quota 100%",
+    }
+    layer3 = {"source": "probe_only", "input": 3200, "output": 9250}
+    fallback = mm_quota._layer2_fallback_block()
+
+    out = mm_quota._format_output(layer1, layer3, fallback)
+    assert "10% used" in out
+    assert "resets in 4 hr 5 min" in out
+    assert "Unlimited" in out
+    assert "Total quota 100%" in out
+    assert "12,450" in out  # 3200 + 9250
+    assert "Source: console scrape" in out
+    # No fallback block on the happy path
+    assert "Fallback: open" not in out
+
+
+def test_format_output_layer1_skipped_path():
+    """Layer 1 unavailable → output shows ?? values, includes fallback."""
+    layer1 = {
+        "source": "skipped",
+        "reason": "MINIMAX_CONSOLE_COOKIE not set in P:/.env",
+    }
+    layer3 = {"source": "probe_only", "input": 0, "output": 0}
+    fallback = mm_quota._layer2_fallback_block()
+
+    out = mm_quota._format_output(layer1, layer3, fallback)
+    assert "??" in out
+    assert "Source: no data" in out
+    assert "MINIMAX_CONSOLE_COOKIE" in out
+    assert "Fallback: open" in out
+    assert "platform.minimax.io/console/usage" in out
+
+
+# --- Env loading ------------------------------------------------------------
+
+
+def test_load_env_returns_empty_for_missing_file(tmp_path):
+    """Nonexistent env path → {}, no exception."""
+    assert mm_quota._load_env(tmp_path / "nope.env") == {}
+
+
+def test_load_env_parses_key_value_pairs(tmp_path):
+    """Standard .env format parses correctly; comments and blank lines ignored."""
+    env_file = tmp_path / "test.env"
+    env_file.write_text(
+        "# comment line\n"
+        "\n"
+        "ANTHROPIC_AUTH_TOKEN=sk-abc\n"
+        "QUOTED=\"value with spaces\"\n"
+        "SINGLE_QUOTED='single'\n"
+        "NO_EQUALS_SIGN\n",
+        encoding="utf-8",
+    )
+    env = mm_quota._load_env(env_file)
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "sk-abc"
+    assert env["QUOTED"] == "value with spaces"
+    assert env["SINGLE_QUOTED"] == "single"
+    # Lines without = are silently dropped
+    assert "NO_EQUALS_SIGN" not in env

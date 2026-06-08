@@ -1,0 +1,21 @@
+{
+  "timestamp": "2026-06-06T14:50:19.470986",
+  "summary": {
+    "total": 1,
+    "healthy": 1,
+    "with_issues": 0
+  },
+  "skills": [
+    {
+      "skill": "contract-status",
+      "lines": 45,
+      "issues": [],
+      "warnings": [
+        "Missing recommended: category",
+        "Missing recommended: version",
+        "Missing recommended: status"
+      ],
+      "healthy": true
+    }
+  ]
+}

@@ -205,3 +205,58 @@ class TestHookMain:
         code, stderr = self._run_hook(data)
         assert code == 0
         assert "Plugin source edited" not in stderr
+
+
+# --- Edit/MultiEdit coverage (regression: reminder was Write-only) ---
+
+def _run_reminder(tool_name, file_path, session_id, tmp_state):
+    """Invoke the reminder hook as a subprocess; return (stdout, recorded_plugins)."""
+    import subprocess, sys, os, json as _json
+    from pathlib import Path as _P
+    hook = (
+        _P(__file__).resolve().parent.parent
+        / "hooks" / "cc-skills-utils_PostToolUse_cache_reminder.py"
+    )
+    payload = _json.dumps({
+        "tool_name": tool_name,
+        "tool_input": {"file_path": file_path},
+    })
+    env = dict(os.environ, CLAUDE_CODE_SESSION_ID=session_id)
+    r = subprocess.run([sys.executable, str(hook)], input=payload,
+                       capture_output=True, text=True, env=env)
+    return r.stdout.strip()
+
+
+def test_reminder_fires_on_edit_event():
+    """Editing (not just writing) a plugin source file must emit the advisory."""
+    import uuid
+    sid = f"edittest-{uuid.uuid4().hex[:8]}"
+    plugin_file = (
+        "P:/packages/.claude-marketplace/plugins/cc-skills-utils/"
+        "hooks/cc-skills-utils_PostToolUse_cache_reminder.py"
+    )
+    out = _run_reminder("Edit", plugin_file, sid, None)
+    assert "systemMessage" in out
+    assert "cc-skills-utils" in out
+
+
+def test_reminder_fires_on_multiedit_event():
+    import uuid
+    sid = f"multitest-{uuid.uuid4().hex[:8]}"
+    plugin_file = (
+        "P:/packages/.claude-marketplace/plugins/cc-skills-utils/"
+        "hooks/cc-skills-utils_PostToolUse_cache_reminder.py"
+    )
+    out = _run_reminder("MultiEdit", plugin_file, sid, None)
+    assert "systemMessage" in out
+
+
+def test_reminder_ignores_read_event():
+    import uuid
+    sid = f"readtest-{uuid.uuid4().hex[:8]}"
+    plugin_file = (
+        "P:/packages/.claude-marketplace/plugins/cc-skills-utils/"
+        "hooks/cc-skills-utils_PostToolUse_cache_reminder.py"
+    )
+    out = _run_reminder("Read", plugin_file, sid, None)
+    assert out == ""
