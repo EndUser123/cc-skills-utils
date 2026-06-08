@@ -26,10 +26,23 @@ STOP_HOOKS = [
     "cc-skills-utils_Stop_cache_reconciler.py",
 ]
 
+PRETOOLUSE_HOOKS = [
+    "cc-skills-utils_PreToolUse_dispatch_invariant.py",
+]
+
 DISPATCH = {
+    "PreToolUse": PRETOOLUSE_HOOKS,
     "PostToolUse": POSTTOOLUSE_HOOKS,
     "Stop": STOP_HOOKS,
 }
+
+
+def _is_deny(parsed: dict) -> bool:
+    """True if a PreToolUse child returned a deny permission decision."""
+    hso = parsed.get("hookSpecificOutput")
+    if isinstance(hso, dict) and hso.get("permissionDecision") == "deny":
+        return True
+    return False
 
 
 def main() -> None:
@@ -61,13 +74,23 @@ def main() -> None:
             continue  # Fail open
 
         out = result.stdout.decode(errors="replace").strip()
-        if out:
-            try:
-                parsed = json.loads(out)
-                if isinstance(parsed, dict) and parsed.get("systemMessage"):
-                    print(out)
-            except json.JSONDecodeError:
-                pass
+        if not out:
+            continue
+        try:
+            parsed = json.loads(out)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+
+        # PreToolUse: a deny short-circuits and is surfaced to the model.
+        if event == "PreToolUse" and _is_deny(parsed):
+            print(out)
+            sys.exit(0)
+
+        # Other events: forward advisory systemMessage.
+        if parsed.get("systemMessage"):
+            print(out)
 
     sys.exit(0)
 

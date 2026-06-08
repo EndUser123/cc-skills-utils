@@ -126,14 +126,18 @@ def _record_warning(plugin_name: str, session_id: str | None) -> None:
 
 
 def _emit_advisory(plugin_name: str) -> None:
-    """Print advisory to stderr (non-blocking, exit 0)."""
+    """Emit advisory as JSON systemMessage on stdout (non-blocking, exit 0).
+
+    Emitted on stdout (not stderr) so the router — which captures child output
+    and forwards only stdout systemMessage — surfaces it. stderr from a hook is
+    treated as a hook error by the harness and is swallowed by the router.
+    """
     msg = (
-        f"\n📌 Plugin source edited: '{plugin_name}'\n"
-        f"   The running system loads from cache. To apply changes:\n"
-        f"   1. Run: plugin-audit-and-fix.py --bump {plugin_name}\n"
-        f"   2. Then: /reload-plugins\n"
+        f"📌 Plugin source edited: '{plugin_name}'. "
+        f"The running system loads from cache. To apply changes: "
+        f"1. plugin-audit-and-fix.py --bump {plugin_name}  2. /reload-plugins"
     )
-    print(msg, file=sys.stderr)
+    print(json.dumps({"systemMessage": msg}))
 
 
 def main() -> None:
