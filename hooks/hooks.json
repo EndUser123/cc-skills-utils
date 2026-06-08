@@ -1,28 +1,3 @@
 {
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "^(?:Write)$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PLUGIN_ROOT/hooks/cc-skills-utils_PostToolUse_cache_reminder.py\"",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python \"$CLAUDE_PLUGIN_ROOT/hooks/cc-skills-utils_Stop_cache_reconciler.py\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
