@@ -21,20 +21,19 @@ import mm_quota  # noqa: E402
 # --- Layer 1: env-var short-circuit -----------------------------------------
 
 
-def test_layer1_skips_when_cookie_unset(tmp_path, monkeypatch):
-    """No MINIMAX_CONSOLE_COOKIE → returns skipped, never imports playwright."""
-    fake_env_path = tmp_path / "no_cookie.env"
-    fake_env_path.write_text("ANTHROPIC_AUTH_TOKEN=sk-test\n", encoding="utf-8")
-    # Also make sure monkeypatch doesn't have a stray env var
-    monkeypatch.delenv("MINIMAX_CONSOLE_COOKIE", raising=False)
+def test_layer1_skips_when_chrome_profile_missing(monkeypatch, tmp_path):
+    """No mm-quota Chrome profile on disk → returns skipped, never launches Chrome.
 
-    result = mm_quota._layer1_console_scrape(
-        mm_quota._load_env(fake_env_path)
-    )
+    The persistent-context path requires a Chrome user-data directory. If
+    `_discover_chrome_user_data_dir` returns None, the skill must short-
+    circuit with a clear reason, not import playwright at all.
+    """
+    # Force the discovery helper to find no Chrome user-data dir.
+    monkeypatch.setattr(mm_quota, "_discover_chrome_user_data_dir", lambda: None)
+
+    result = mm_quota._layer1_console_scrape({})
     assert result["source"] == "skipped"
-    assert "MINIMAX_CONSOLE_COOKIE" in result["reason"]
-    # Critical: this path must never import playwright (it might not be installed)
-    # If it tried to import and failed, we'd get "playwright not installed" instead.
+    assert "user-data directory" in result["reason"].lower() or "chrome" in result["reason"].lower()
 
 
 def test_layer1_skips_when_playwright_missing(monkeypatch, tmp_path):
@@ -50,6 +49,67 @@ def test_layer1_skips_when_playwright_missing(monkeypatch, tmp_path):
     result = mm_quota._layer1_console_scrape(env)
     assert result["source"] == "skipped"
     assert "playwright" in result["reason"].lower()
+
+
+def test_layer1_uses_persistent_context(monkeypatch, tmp_path):
+    """Layer 1 must call launch_persistent_context (not launch+add_cookies).
+
+    Verifies the live-scrape path uses a persistent context against the
+    mm-quota profile directory, with headless=True and channel="chrome".
+    No real browser is launched; we inject a fake context manager.
+    """
+    # Fake user-data-dir containing the mm-quota profile.
+    fake_user_data = tmp_path / "User Data"
+    fake_user_data.mkdir()
+    (fake_user_data / mm_quota.MM_QUOTA_PROFILE_NAME).mkdir()
+    monkeypatch.setattr(mm_quota, "_discover_chrome_user_data_dir", lambda: fake_user_data)
+
+    # Build a fake playwright that records the call and returns a no-op
+    # context manager whose new_page() returns a page whose wait_for_selector
+    # raises TimeoutError (so we exercise the "did not render" hint path
+    # without needing a real network).
+    class _FakePage:
+        def goto(self, *a, **kw): return None
+        def wait_for_selector(self, *a, **kw):
+            raise TimeoutError("fake timeout")
+    class _FakeContext:
+        def new_page(self): return _FakePage()
+        def close(self): pass
+    class _FakeBrowser:
+        def launch_persistent_context(self, **kw):
+            # Record the call so the test can assert on it.
+            fake_browser.calls.append(kw)
+            return _FakeContext()
+    fake_browser = type("_B", (), {"calls": []})()
+    fake_browser.launch_persistent_context = lambda **kw: (
+        fake_browser.calls.append(kw) or _FakeContext()
+    )
+
+    class _FakePlaywrightCM:
+        def __enter__(self_inner):
+            class _P:
+                chromium = fake_browser
+            return _P()
+        def __exit__(self_inner, *a): return False
+
+    fake_module = type(sys)("playwright.sync_api")
+    fake_module.sync_playwright = lambda: _FakePlaywrightCM()
+    monkeypatch.setitem(sys.modules, "playwright", type(sys)("playwright"))
+    sys.modules["playwright"].sync_api = fake_module
+    sys.modules["playwright.sync_api"] = fake_module
+
+    result = mm_quota._layer1_console_scrape({})
+
+    # Persistent context was called with the mm-quota profile's full path
+    # (not the parent user-data dir), headless=True, channel="chrome".
+    assert len(fake_browser.calls) == 1
+    call = fake_browser.calls[0]
+    assert call["headless"] is True
+    assert call["channel"] == "chrome"
+    assert call["user_data_dir"].endswith(mm_quota.MM_QUOTA_PROFILE_NAME)
+    # And the result reflects the "did not render" hint path.
+    assert result["source"] == "skipped"
+    assert "did not render" in result["reason"]
 
 
 # --- Layer 3: log parsing ----------------------------------------------------

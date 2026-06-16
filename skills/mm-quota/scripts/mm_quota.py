@@ -217,6 +217,10 @@ def _setup_capture_cookie(chrome_profile_override: str | None = None) -> dict[st
     # Always target the dedicated mm-quota profile for setup. If the user
     # passes --chrome-profile explicitly, honour it (escape hatch).
     target_profile = chrome_profile_override or MM_QUOTA_PROFILE_NAME
+    # Point launch_persistent_context at the profile's full path. Playwright
+    # does NOT accept a `profile` kwarg; the profile is selected by the
+    # user_data_dir path. Auto-created on first launch.
+    target_profile_dir = user_data_dir / target_profile
 
     print(f"[mm-quota] SETUP: launching visible persistent context against "
           f"profile '{target_profile}' in {user_data_dir}", file=sys.stderr)
@@ -234,8 +238,7 @@ def _setup_capture_cookie(chrome_profile_override: str | None = None) -> dict[st
             # mm-quota profile's storage (cookies, local storage) is reused
             # across runs, so a single login is enough.
             context = p.chromium.launch_persistent_context(
-                user_data_dir=str(user_data_dir),
-                profile=target_profile,
+                user_data_dir=str(target_profile_dir),
                 headless=False,
                 slow_mo=200,
                 channel="chrome",

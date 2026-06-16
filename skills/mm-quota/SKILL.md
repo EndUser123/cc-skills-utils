@@ -1,18 +1,19 @@
 ---
 name: mm-quota
-version: "1.1.0"
+version: "1.2.0"
 status: "stable"
 category: infrastructure
 enforcement: advisory
 allowed_first_tools:
   - Bash
-description: Report MiniMax Plus plan quota — 5h rolling window, weekly, monthly — and session token usage, with automatic cookie capture/setup and graceful fallback when console credentials are not configured.
+description: Report MiniMax Plus plan quota — 5h rolling window, weekly, monthly — and session token usage, with one-time Chrome profile login and graceful fallback when console credentials are not configured.
 triggers:
   - /mm-quota
 workflow_steps:
   - load_env: 'Read P:/.env to obtain MINIMAX_CONSOLE_COOKIE (and its capture timestamp), ANTHROPIC_AUTH_TOKEN, ANTHROPIC_BASE_URL. Never raise; missing vars become None.'
-  - auto_setup_check: 'If MINIMAX_CONSOLE_COOKIE is missing OR its capture timestamp is older than 7 days, automatically invoke the visible-browser setup flow once. The user logs in once; the cookie is captured and persisted to P:/.env for all future runs.'
-  - layer1_console_scrape: 'If MINIMAX_CONSOLE_COOKIE is set AND playwright is importable, headless-browse platform.minimax.io/console/usage and scrape the 5h/weekly/monthly bars. On any failure, return {skipped, reason}; never raise to caller.'
+  - auto_setup_check: 'If the live scrape hits a sign-in form (article did not render), automatically invoke the visible-browser setup flow once against the dedicated mm-quota Chrome profile. The user logs in once; the session is persisted to the mm-quota profile directory for all future runs.'
+  - layer1_console_scrape: 'Launch a persistent context against the mm-quota Chrome profile (headless, channel=chrome). The profile inherits the platform.minimax.io session across runs, so no cookie injection is needed. On any failure, return {skipped, reason}; never raise to caller.'
+  - layer1b_html_opt_in: 'Only when the user passes --html PATH. Parse a saved HTML snapshot of the console page. This is an offline / air-gapped escape hatch, not a default path.'
   - layer2_fallback_block: 'Always print a clearly-labeled block with the console URL and the three values to copy. This block is informational; the user only acts on it if Layer 1 returned no data.'
   - layer3_session_tokens: 'Read the local MiniMax API call JSONL log; sum usage.input_tokens and usage.output_tokens for the current session. If no log exists, make a single max_tokens=1 probe and report the (zero) tokens it consumed.'
   - assemble_output: 'Render the three-layer output as a single chat display block with explicit per-layer Source: lines and a Fallback: section appended when Layer 1 fell through.'
@@ -49,34 +50,47 @@ python .../mm_quota.py --no-auto-setup
 
 ## First Run & Cookie Lifecycle
 
-The skill works out of the box when `C:/Users/brsth/Downloads/Usage.html` exists (Layer 1B — offline HTML parse, no cookies needed):
+The skill uses a dedicated Chrome profile (`mm-quota`) to hold the `platform.minimax.io` session. This isolates the platform session from your real browser and lets subsequent headless runs inherit the session without cookie injection.
 
-1. **Quickest path** — Open `https://platform.minimax.io/console/usage` in Chrome, press Ctrl+S, save as `Usage.html` to your Downloads folder. The next `/mm-quota` invocation will read that file and return the live numbers.
-2. **Staleness hint** — If the HTML file is older than 2 minutes, the skill prints a one-line reminder telling you to refresh in Chrome. No silent stale data.
-3. **No auto-setup when HTML path is available** — The Playwright/cookie-capture path is only triggered when no HTML snapshot exists.
+**First run (one-time, ~30 seconds):**
 
-If the HTML file is missing and you'd rather not use the browser-saved-page workflow, the skill still supports the auto-setup path:
+1. Run `python .../mm_quota.py` (or `/mm-quota`).
+2. The skill detects there's no `mm-quota` Chrome profile yet, automatically opens a **visible** Chrome window against the new profile, and prints:
+   ```
+   [mm-quota] live scrape hit a sign-in form — running automatic setup
+   [mm-quota] SETUP: launching visible persistent context against profile 'mm-quota' …
+   [mm-quota] SETUP: log in to platform.minimax.io in the opened browser
+   ```
+3. Log in to `platform.minimax.io` in the opened window. Once the usage bars render, the skill captures the session into the `mm-quota` profile and closes the browser.
 
-1. **First run** — `MINIMAX_CONSOLE_COOKIE` is missing from `P:/.env`, so the skill prints `no cookie found — running automatic setup` and opens a visible Chromium to `platform.minimax.io/console/usage`.
-2. **You log in** — once the usage bars render, the skill captures every cookie for `platform.minimax.io` and writes them to `P:/.env` along with a `MINIMAX_CONSOLE_COOKIE_CAPTURED_AT` timestamp. The browser closes automatically.
-3. **Every subsequent run** — the cookie is loaded from `P:/.env` and the live console is scraped headless. You never see a browser again.
-4. **After 7 days** — the cookie is considered stale. The next run auto-triggers setup once more. If a live scrape ever fails with a cookie error (e.g., the server invalidated the session), the skill also auto-retries setup once.
+**Every subsequent run:**
 
-To force a refresh: run with `--setup`. To disable auto-setup entirely: run with `--no-auto-setup`.
+- The skill launches a **headless** persistent context against the existing `mm-quota` profile, navigates to the console, and scrapes the live numbers. No browser window appears. No cookies are injected from `.env` — the profile's own storage supplies the session.
+
+**To force a re-login** (e.g., the platform's session expired): run with `--setup`. To disable auto-setup entirely: run with `--no-auto-setup`.
+
+**HTML snapshot escape hatch** (offline / air-gapped runs): pass `--html PATH` to parse a saved HTML file instead of scraping live. This is no longer the default — only opt in explicitly:
+
+```bash
+python .../mm_quota.py --html path/to/saved/Usage.html
+```
 
 ## Three Layers, in Order
 
 The skill always runs all three layers. Each layer is independent and degrades independently.
 
-### Layer 1 — Console scrape (best case, env-gated)
+### Layer 1 — Console scrape (best case, default path)
 
-If `MINIMAX_CONSOLE_COOKIE` is set in `.env` AND `playwright` is importable, the script launches a headless Chromium, navigates to `https://platform.minimax.io/console/usage`, waits for the usage bars to render, and scrapes:
+The script launches a **persistent Chromium context** against the dedicated `mm-quota` Chrome profile (`headless=True`, `channel="chrome"`). The profile's storage (cookies, local storage, IndexedDB) inherits the `platform.minimax.io` session across runs — no cookie injection from `.env` is needed. If the profile doesn't exist yet, Playwright auto-creates it on first launch; the skill detects the sign-in form response and falls back to `--setup` (one-time visible-browser login).
+
+The scrape reads:
 
 - 5h window: percent used, time-until-reset
 - Weekly: percent used or "Unlimited"
 - Monthly total: 100% indicator and any visible consumed number
+- Historical token stats: Yesterday / 7d / 30d / Total
 
-If either precondition fails, Layer 1 is skipped with a one-line reason and the next layer takes over. No crash, no exception propagation.
+If the persistent context can't be created (e.g., Chrome not installed, no `LOCALAPPDATA`), Layer 1 is skipped with a one-line reason and the next layer takes over. No crash, no exception propagation.
 
 ### Layer 2 — Manual fallback (always printed, action optional)
 
@@ -109,14 +123,14 @@ If Layer 1 fell through, the `Source` line changes to `Source: console cookie no
 
 ## Configuration
 
-Optional. The skill works without any of these, but Layer 1 requires both.
+The skill works out of the box for Layer 1 once the `mm-quota` Chrome profile has been seeded (one-time login during the first `/mm-quota` run). `.env` values are only needed for the Layer 3 probe and the `--cookie-paste` fallback.
 
 | Env var | Effect | Required for |
 |---------|--------|--------------|
-| `MINIMAX_CONSOLE_COOKIE` | Captured session cookies (JSON blob) for `platform.minimax.io` | Layer 1 (auto-captured on first run) |
-| `MINIMAX_CONSOLE_COOKIE_CAPTURED_AT` | Unix timestamp of last successful capture | Auto-managed; 7-day freshness window |
 | `ANTHROPIC_AUTH_TOKEN` | API key, used by Layer 3 probe and by `cc-mm` | Layer 3 (probe path) |
 | `ANTHROPIC_BASE_URL` | MiniMax Anthropic-compatible endpoint | Layer 3 |
+| `MINIMAX_CONSOLE_COOKIE` | Captured session cookies (JSON blob) for `platform.minimax.io` | `--cookie-paste` fallback path (not used by the default Layer 1) |
+| `MINIMAX_CONSOLE_COOKIE_CAPTURED_AT` | Unix timestamp of last successful capture | Auto-managed; 7-day freshness window |
 
 Set these in `P:/.env`, not in process environment. The skill reads `.env` directly to keep credentials out of subprocess environments.
 
@@ -124,15 +138,16 @@ Set these in `P:/.env`, not in process environment. The skill reads `.env` direc
 
 | Condition | Behavior |
 |-----------|----------|
-| `MINIMAX_CONSOLE_COOKIE` unset | Auto-setup opens a visible browser for first-time login |
-| Cookie older than 7 days | Auto-setup refreshes the cookie (visible browser, once) |
-| Live scrape fails with cookie error | Auto-setup retries once, then falls through to fallback |
-| `playwright` not installed | Layer 1 skipped; Layer 1B (HTML snapshot) attempted; Layer 2 + 3 run |
+| `mm-quota` Chrome profile doesn't exist (first run) | Live scrape hits sign-in form → auto-setup runs once → visible browser → user logs in → profile seeded |
+| `playwright` not installed | Layer 1 skipped with install hint; Layer 2 + 3 run |
+| Chrome not installed / `LOCALAPPDATA` missing | Layer 1 skipped with reason; Layer 2 + 3 run |
+| Persistent context times out on `article` selector | One automatic setup retry, then Layer 1 reports "did not render" and falls through to fallback |
 | Console DOM changed (selector miss) | Layer 1 returns null fields; Layer 2 + 3 still print |
 | No API call log on disk | Layer 3 makes a single `max_tokens=1` probe |
 | Network offline | Layer 1 and 3 fail; Layer 2 still prints fallback instructions |
 | User runs `--no-auto-setup` | Setup never triggers automatically; manual `--setup` required |
 | Playwright browser binary missing | Layer 1 skipped with install hint; Layer 2 + 3 run |
+| User passes `--html PATH` | Layer 1 is skipped; Layer 1B (HTML parser) runs against the given file |
 
 ## Why Three Layers
 
@@ -145,18 +160,30 @@ mm_quota.py
 ├── _load_env()                 # reads P:/.env, never raises
 ├── _cookie_is_fresh()          # 7-day window check on MINIMAX_CONSOLE_COOKIE_CAPTURED_AT
 ├── _save_cookie_to_env()       # writes cookie + timestamp back to P:/.env, preserves other keys
-├── _setup_capture_cookie()     # visible-browser login flow; waits for quota DOM, captures all cookies
-├── _layer1_console_scrape()    # headless Playwright; uses captured cookies; returns dict or {skipped, reason}
-├── _layer1b_parse_html()       # offline HTML snapshot parser (no browser, no creds)
+├── _discover_chrome_user_data_dir()  # finds Chrome user data directory (LOCALAPPDATA on Windows)
+├── _setup_capture_cookie()     # visible-browser login flow; persistent context against mm-quota profile; captures session
+├── _layer1_console_scrape()    # headless persistent context against mm-quota profile; inherits session from profile storage
+├── _layer1b_parse_html()       # offline HTML snapshot parser (only when --html PATH is passed)
 ├── _layer2_fallback_block()    # static instructions; always returns string
 ├── _layer3_session_tokens()    # parses JSONL log or makes probe; returns int tuple
 ├── _format_output()            # assembles the chat display block
-└── main()                      # orchestrates layers + auto-setup + retry-on-cookie-error
+└── main()                      # orchestrates layers + auto-setup + retry-on-sign-in-form
 ```
 
 Dependencies: `playwright` (Layer 1 + setup), `requests` (Layer 3 probe path).
 
 Tests:
-- `tests/test_mm_quota.py` — Layer 1 env-var short-circuit, Layer 3 log parsing, env loading.
+- `tests/test_mm_quota.py` — Layer 1 persistent context behavior, Layer 3 log parsing, env loading.
 - `tests/test_html_parser.py` — Layer 1B against the saved `Usage.html` fixture.
 - `tests/test_setup_flow.py` — cookie freshness, persistence (no-clobber, overwrite, error-swallow), JSON blob parsing.
+
+## Rollback
+
+If the new live path fails in practice, the user can:
+
+```bash
+python .../mm_quota.py --html PATH   # opt back into the offline parser with any saved snapshot
+git checkout HEAD -- packages/.claude-marketplace/plugins/cc-skills-utils/skills/mm-quota/   # revert the change set
+```
+
+The `--html` path is preserved as a deliberate escape hatch.

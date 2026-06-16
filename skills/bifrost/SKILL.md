@@ -1,6 +1,6 @@
 ---
 name: bifrost
-version: "1.5.11"
+version: "1.5.13"
 status: "stable"
 category: infrastructure
 enforcement: advisory
@@ -41,12 +41,12 @@ python P://packages/cc-skills-utils/skills/bifrost/scripts/filter_models.py --mo
 ```
 
 ## DB Location
-`C:\Users\brsth\AppData\Roaming\bifrost\config.db`
+`C:\Users\brsth\.config\bifrost\config.db`
 Table: `governance_model_parameters`
 
 ## Release Notes
 
-v1.5.11 hydrates governance model configs and budgets before the quota and reload APIs return, so live budget data should be current instead of stale when you query the Bifrost DB after a refresh.
+The installed npm wrapper follows the latest Bifrost transport release. As of this update, `https://getbifrost.ai/latest-release` resolves to `v1.5.13`.
 
 ## Schema (5-field UMU)
 
