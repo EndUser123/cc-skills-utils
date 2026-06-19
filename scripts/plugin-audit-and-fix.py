@@ -1390,6 +1390,170 @@ def audit_name_conflicts() -> list[dict]:
             })
     return findings
 
+
+# ---------------------------------------------------------------------------
+# In-process module shadow check
+# ---------------------------------------------------------------------------
+# MUST mirror the sys.path.insert() calls in P:/.claude/hooks/Stop.py (lines
+# ~83-119).  Listed here in LOWEST-to-HIGHEST priority order (i.e. the order
+# in which Stop.py inserts them, each insert(0) pushing the next one to the
+# front).  The LAST entry is the winner for any bare `import <name>`.
+# When Stop.py changes its sys.path setup, update this list to match.
+STOP_INPROCESS_DIRS: list[str] = [
+    # Inserted first → lowest priority (gets pushed back by later inserts)
+    "P:/packages/.claude-marketplace/plugins/cc-aca-epistemic/hooks/stop",
+    "P:/packages/.claude-marketplace/plugins/cc-aca-authority/hooks/stop",
+    "P:/packages/.claude-marketplace/plugins/cc-aca-reasoning/hooks/stop",
+    "P:/packages/.claude-marketplace/plugins/cc-aca-epistemic/__lib",
+    "P:/packages/.claude-marketplace/plugins/cc-aca-observability/hooks/posttool",
+    # P:/.claude/hooks/__lib — inserted lazily but still participates in bare imports
+    "P:/.claude/hooks/__lib",
+    # Inserted last → HIGHEST priority (index 0, wins bare import)
+    "P:/.claude/hooks",
+]
+
+# Re-export shim size ceiling: a small module (under this byte count) whose body
+# merely forwards a same-named module (``from __lib.<name> import`` /
+# ``globals().update``) is an intentional forwarding shim, not a divergent copy.
+# importlib ``spec_from_file_location`` shims are recognised at ANY size.
+_REEXPORT_SHIM_MAX_BYTES = 800
+
+
+def audit_stop_module_shadows() -> list[dict]:
+    """Detect in-process module shadow conflicts in Stop.py's sys.path.
+
+    Stop.py inserts multiple directories onto sys.path then does bare
+    ``from <name> import ...`` calls.  When two of those dirs contain a
+    same-named .py module with *divergent* content, whichever dir was
+    inserted last (highest priority) wins — silently.  This is a latent
+    stale-shadow bug.
+
+    Detection rules
+    ---------------
+    1. **Dirs**: the 7 dirs in ``STOP_INPROCESS_DIRS`` (only existing ones).
+    2. **Overlap**: any basename appearing in >=2 dirs.
+    3. **CRLF normalisation**: ``\\r`` stripped before hashing so line-ending-
+       only differences are NOT flagged.
+    4. **Shim exclusion**: intentional forwarding shims are skipped — either an
+       ``importlib`` + ``spec_from_file_location`` shim (any size) or a small
+       (<``_REEXPORT_SHIM_MAX_BYTES``) re-export shim. Dunder files
+       (``__init__.py`` / ``__main__.py``) are excluded entirely.
+    5. **Winner**: the dir with highest priority (rightmost in
+       ``STOP_INPROCESS_DIRS``) wins the bare import.
+
+    Returns a list of finding dicts (one per divergent basename).  Identical
+    pairs produce no finding.  The function is read-only.
+    """
+    import hashlib
+
+    findings: list[dict] = []
+
+    # Only consider dirs that actually exist on disk
+    existing_dirs: list[str] = [d for d in STOP_INPROCESS_DIRS if Path(d).is_dir()]
+    if len(existing_dirs) < 2:
+        return findings
+
+    # Collect basenames → list of (dir_path, full_file_path) in priority order
+    basename_locations: dict[str, list[tuple[str, Path]]] = {}
+    for dir_str in existing_dirs:
+        dir_path = Path(dir_str)
+        for py_file in dir_path.iterdir():
+            if py_file.suffix != ".py" or not py_file.is_file():
+                continue
+            # Dunder files (__init__.py, __main__.py) are package markers /
+            # script entrypoints — never bare-imported as top-level modules, so
+            # they cannot shadow each other across sys.path dirs.
+            if py_file.name.startswith("__") and py_file.name.endswith("__.py"):
+                continue
+            basename_locations.setdefault(py_file.name, []).append((dir_str, py_file))
+
+    def _is_shim(path: Path) -> bool:
+        """Return True if path is an intentional forwarding shim.
+
+        Two shim styles are recognised:
+        - importlib: loads the canonical module via ``spec_from_file_location``
+          and re-exports it — a shim at ANY size (e.g. a 24KB router shim).
+        - re-export: a small module whose body forwards a same-named module
+          (``from __lib.<name> import`` / ``globals().update``).
+        """
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return False
+        text = raw.decode("utf-8", errors="replace")
+        if "importlib" in text and "spec_from_file_location" in text:
+            return True
+        if len(raw) < _REEXPORT_SHIM_MAX_BYTES:
+            stem = path.stem
+            if (
+                "globals().update" in text
+                or f"from __lib.{stem} import" in text
+                or f"from .{stem} import" in text
+                or f"from ..{stem} import" in text
+            ):
+                return True
+        return False
+
+    def _normalised_hash(path: Path) -> str | None:
+        """Return SHA-256 of file content with \\r stripped (CRLF normalised)."""
+        try:
+            raw = path.read_bytes()
+        except OSError:
+            return None
+        normalised = raw.replace(b"\r", b"")
+        return hashlib.sha256(normalised).hexdigest()
+
+    for basename, locations in basename_locations.items():
+        if len(locations) < 2:
+            continue
+
+        # Filter out shims before divergence check
+        non_shim = [(d, p) for d, p in locations if not _is_shim(p)]
+        if len(non_shim) < 2:
+            continue
+
+        # Compare all pairs for divergence
+        diverged = False
+        for i in range(len(non_shim)):
+            for j in range(i + 1, len(non_shim)):
+                h_i = _normalised_hash(non_shim[i][1])
+                h_j = _normalised_hash(non_shim[j][1])
+                if h_i is not None and h_j is not None and h_i != h_j:
+                    diverged = True
+                    break
+            if diverged:
+                break
+
+        if not diverged:
+            continue
+
+        # Winner = the entry with the highest index in STOP_INPROCESS_DIRS
+        # (rightmost = inserted last = index 0 in sys.path = bare import winner)
+        def _priority(loc_tuple: tuple[str, Path]) -> int:
+            try:
+                return STOP_INPROCESS_DIRS.index(loc_tuple[0])
+            except ValueError:
+                return -1
+
+        winner_dir, winner_path = max(non_shim, key=_priority)
+
+        findings.append({
+            "category": "stop_module_shadow",
+            "type": "stop_module_shadow",
+            "basename": basename,
+            "locations": [str(p) for _, p in non_shim],
+            "winner": str(winner_path),
+            "winner_dir": winner_dir,
+            "issue": (
+                f"In-process shadow: '{basename}' appears in "
+                f"{len(non_shim)} Stop.py sys.path dirs with divergent content. "
+                f"Winner (bare import): {winner_path}"
+            ),
+        })
+
+    return findings
+
+
 def auto_fix_plugins(plugins_dir: Path, delete_hooks: bool) -> list[dict]:
     """Auto-fix common issues."""
     results = []
@@ -2403,6 +2567,19 @@ def main(argv: list[str]) -> int:
     else:
         print(f"{C_GREEN}No intra-source lib directory duplication found.{C_RESET}")
 
+    # Check for in-process module shadows in Stop.py's sys.path
+    print("\nChecking for in-process module shadows (Stop.py sys.path)...")
+    shadow_findings = audit_stop_module_shadows()
+    if shadow_findings:
+        print(f"{C_YELLOW}Found {len(shadow_findings)} in-process module shadow(s):{C_RESET}")
+        for f in shadow_findings:
+            print(f"  {C_YELLOW}[stop_module_shadow]{C_RESET} {f['basename']}: {f['issue']}")
+            for loc in f["locations"]:
+                marker = " <-- WINS" if loc == f["winner"] else ""
+                print(f"    {loc}{marker}")
+    else:
+        print(f"{C_GREEN}No in-process module shadows found.{C_RESET}")
+
     # Check hook correctness (registration, orphaned files, duplicate registrations)
     print("\nChecking hook correctness...")
     hook_findings = audit_hook_correctness(plugins_dir, args.plugins)
@@ -2552,6 +2729,7 @@ def main(argv: list[str]) -> int:
         all_findings.extend(skill_fm_findings)
         all_findings.extend(drift_findings)
         all_findings.extend(dup_findings)
+        all_findings.extend(shadow_findings)
 
         # Write findings to temp file and pass to summarizer
         tmp_path: str | None = None

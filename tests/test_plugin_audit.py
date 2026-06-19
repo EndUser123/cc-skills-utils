@@ -16,6 +16,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 
 audit_source_cache_drift = _mod.audit_source_cache_drift
+audit_stop_module_shadows = _mod.audit_stop_module_shadows
 bump_version = _mod.bump_version
 bidir_sync = _mod.bidir_sync
 main = _mod.main
@@ -643,3 +644,207 @@ class TestAuditSettingsHooks:
             exit_code = main(["prog", "--packages-root", str(packages)])
 
         assert exit_code == 1
+
+
+class TestStopModuleShadows:
+    """Tests for audit_stop_module_shadows() — in-process sys.path shadow detection."""
+
+    def _make_dirs(self, tmp_path: Path, count: int = 2) -> list[Path]:
+        """Create `count` temp dirs that look like Stop.py sys.path entries."""
+        dirs = []
+        for i in range(count):
+            d = tmp_path / f"dir_{i}"
+            d.mkdir()
+            dirs.append(d)
+        return dirs
+
+    def _override_dirs(self, dirs: list[Path]):
+        """Return a patch context that replaces STOP_INPROCESS_DIRS with our temp dirs.
+
+        dirs[0] = lowest priority (inserted first in Stop.py)
+        dirs[-1] = highest priority (inserted last → wins bare import)
+        """
+        return patch.object(_mod, "STOP_INPROCESS_DIRS", [str(d) for d in dirs])
+
+    # ------------------------------------------------------------------
+    # (a) Divergent pair — must be flagged
+    # ------------------------------------------------------------------
+    def test_divergent_pair_is_flagged(self, tmp_path: Path) -> None:
+        dirs = self._make_dirs(tmp_path)
+        # Same filename, different content
+        (dirs[0] / "my_module.py").write_text("VERSION = 1\n", encoding="utf-8")
+        (dirs[1] / "my_module.py").write_text("VERSION = 2\n", encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert len(findings) == 1
+        f = findings[0]
+        assert f["basename"] == "my_module.py"
+        assert f["type"] == "stop_module_shadow"
+        # Winner should be the highest-priority dir (dirs[1])
+        assert str(dirs[1]) in f["winner_dir"]
+        assert len(f["locations"]) == 2
+
+    def test_divergent_winner_is_highest_priority_dir(self, tmp_path: Path) -> None:
+        """Winner must be dirs[-1] (rightmost in STOP_INPROCESS_DIRS = inserted last)."""
+        dirs = self._make_dirs(tmp_path, count=3)
+        for i, content in enumerate(["A=1", "A=2", "A=3"]):
+            (dirs[i] / "shared.py").write_text(content, encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert len(findings) == 1
+        assert str(dirs[2]) in findings[0]["winner_dir"]
+
+    # ------------------------------------------------------------------
+    # (b) CRLF-only pair — must NOT be flagged
+    # ------------------------------------------------------------------
+    def test_crlf_only_pair_not_flagged(self, tmp_path: Path) -> None:
+        dirs = self._make_dirs(tmp_path)
+        body = "X = 42\nY = 'hello'\n"
+        (dirs[0] / "crlf_mod.py").write_bytes(body.encode("utf-8"))
+        (dirs[1] / "crlf_mod.py").write_bytes(body.replace("\n", "\r\n").encode("utf-8"))
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == [], f"Expected no findings for CRLF-only diff, got: {findings}"
+
+    def test_identical_pair_not_flagged(self, tmp_path: Path) -> None:
+        dirs = self._make_dirs(tmp_path)
+        body = "CONSTANT = 'same'\n"
+        (dirs[0] / "ident.py").write_text(body, encoding="utf-8")
+        (dirs[1] / "ident.py").write_text(body, encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == []
+
+    # ------------------------------------------------------------------
+    # (c) Shim pair — must NOT be flagged
+    # ------------------------------------------------------------------
+    def test_shim_pair_not_flagged(self, tmp_path: Path) -> None:
+        """Files under _SHIM_SIZE_THRESHOLD bytes containing importlib shim pattern are excluded."""
+        dirs = self._make_dirs(tmp_path)
+        shim_body = (
+            "import importlib.util\n"
+            "spec = importlib.util.spec_from_file_location('real', '/some/other/path.py')\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(mod)\n"
+        )
+        # Both have divergent shims — should still not flag
+        (dirs[0] / "shim_mod.py").write_text(shim_body + "# version 1\n", encoding="utf-8")
+        (dirs[1] / "shim_mod.py").write_text(shim_body + "# version 2\n", encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == [], f"Expected shim pair to be excluded, got: {findings}"
+
+    # ------------------------------------------------------------------
+    # (d) Dunder files — never bare-imported, must be excluded
+    # ------------------------------------------------------------------
+    def test_dunder_files_excluded(self, tmp_path: Path) -> None:
+        """__init__.py / __main__.py are package markers, not shadowable modules."""
+        dirs = self._make_dirs(tmp_path)
+        (dirs[0] / "__init__.py").write_text("VERSION = 1\n", encoding="utf-8")
+        (dirs[1] / "__init__.py").write_text("VERSION = 2\n", encoding="utf-8")
+        (dirs[0] / "__main__.py").write_text("print(1)\n", encoding="utf-8")
+        (dirs[1] / "__main__.py").write_text("print(2)\n", encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == [], f"Dunder files must be excluded, got: {findings}"
+
+    # ------------------------------------------------------------------
+    # (e) Large importlib shim — a shim at ANY size (regression: 24KB router)
+    # ------------------------------------------------------------------
+    def test_large_importlib_shim_not_flagged(self, tmp_path: Path) -> None:
+        """An importlib spec_from_file_location shim is excluded regardless of size."""
+        dirs = self._make_dirs(tmp_path)
+        big = "# padding comment line\n" * 1200  # ~26KB, well over the old 1500b cutoff
+        shim_body = (
+            "import importlib.util\n"
+            "spec = importlib.util.spec_from_file_location('real', '/x.py')\n"
+            "mod = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(mod)\n"
+            + big
+        )
+        (dirs[0] / "big_router.py").write_text(shim_body + "# v1\n", encoding="utf-8")
+        (dirs[1] / "big_router.py").write_text(shim_body + "# v2\n", encoding="utf-8")
+        assert (dirs[0] / "big_router.py").stat().st_size > 1500  # confirm it's a large shim
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == [], f"Large importlib shim must be excluded, got: {findings}"
+
+    # ------------------------------------------------------------------
+    # (f) Re-export shim — small `from __lib.<name> import` forwarder
+    # ------------------------------------------------------------------
+    def test_reexport_shim_not_flagged(self, tmp_path: Path) -> None:
+        """A small re-export shim (from __lib.<name> import ...) is an intentional forwarder."""
+        dirs = self._make_dirs(tmp_path)
+        # dirs[0] = thin re-export shim; dirs[1] = full canonical module (divergent content)
+        (dirs[0] / "terminal_detection.py").write_text(
+            "from __lib.terminal_detection import detect_terminal_id  # noqa\n",
+            encoding="utf-8",
+        )
+        (dirs[1] / "terminal_detection.py").write_text(
+            "def detect_terminal_id():\n    return 'x'\n" + "# body\n" * 50,
+            encoding="utf-8",
+        )
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == [], f"Re-export shim must be excluded, got: {findings}"
+
+    def test_shim_detection_requires_both_keywords(self, tmp_path: Path) -> None:
+        """A file with only 'importlib' but not 'spec_from_file_location' is NOT a shim."""
+        dirs = self._make_dirs(tmp_path)
+        # File has importlib but not spec_from_file_location — not a shim
+        not_shim = "import importlib\nX = importlib.import_module('os')\n"
+        (dirs[0] / "semi_shim.py").write_text(not_shim + "V = 1\n", encoding="utf-8")
+        (dirs[1] / "semi_shim.py").write_text(not_shim + "V = 2\n", encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        # Divergent content and not a proper shim → should be flagged
+        assert len(findings) == 1
+        assert findings[0]["basename"] == "semi_shim.py"
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+    def test_single_dir_returns_empty(self, tmp_path: Path) -> None:
+        d = tmp_path / "only"
+        d.mkdir()
+        (d / "foo.py").write_text("X = 1\n", encoding="utf-8")
+
+        with patch.object(_mod, "STOP_INPROCESS_DIRS", [str(d)]):
+            findings = audit_stop_module_shadows()
+
+        assert findings == []
+
+    def test_no_existing_dirs_returns_empty(self, tmp_path: Path) -> None:
+        ghost_dirs = [str(tmp_path / "nonexistent_a"), str(tmp_path / "nonexistent_b")]
+        with patch.object(_mod, "STOP_INPROCESS_DIRS", ghost_dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == []
+
+    def test_non_py_files_ignored(self, tmp_path: Path) -> None:
+        dirs = self._make_dirs(tmp_path)
+        (dirs[0] / "readme.txt").write_text("v1\n", encoding="utf-8")
+        (dirs[1] / "readme.txt").write_text("v2\n", encoding="utf-8")
+
+        with self._override_dirs(dirs):
+            findings = audit_stop_module_shadows()
+
+        assert findings == []
