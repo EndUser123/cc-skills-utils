@@ -5,7 +5,18 @@ version: "1.8.0"
 status: stable
 category: utility
 compatibility: "Requires python3, curl, and network access to skillsmp.com, skills.palebluedot.live, clawhub.ai, skills.sh, claude.com/plugins, claudemarketplaces.com, claude-plugins.dev, buildwithclaude.com, and github.com"
+permissions:
+  - Read(~/.claude/skills/**)
+  - Write(~/.claude/skills/**)
+  - Read(./.claude/skills/**)
+  - Write(./.claude/skills/**)
+  - Read(C:/Users/brsth/.claude/settings.json)
+  - Write(C:/Users/brsth/.claude/settings.json)
 enforcement: advisory
+workflow_steps:
+  - Discover skills and plugins from multiple sources
+  - Install, sync, and manage skills/plugins across scopes
+  - Provide unified management interface
 metadata:
   homepage: https://github.com/jacob-bd/universal-skills-manager
   disable-model-invocation: "true"

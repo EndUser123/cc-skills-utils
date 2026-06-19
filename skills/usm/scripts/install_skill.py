@@ -30,7 +30,10 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
+
+# Global to store extracted permissions from SKILL.md
+_extracted_permissions = []
 
 
 # =============================================================================
@@ -242,48 +245,94 @@ def download_directory(
 
 def parse_simple_yaml(yaml_str: str) -> dict:
     """
-    Parse simple key: value YAML (no nested objects, no lists).
-    Sufficient for SKILL.md frontmatter.
+    Parse YAML frontmatter with support for lists and simple key: value.
+
+    Sufficient for SKILL.md frontmatter including permissions lists.
     """
     result = {}
+    current_key = None
+    current_list = []
+
     for line in yaml_str.strip().split("\n"):
-        line = line.strip()
+        line = line.rstrip()
         if not line or line.startswith("#"):
             continue
+
+        if line.strip().startswith("- "):
+            # List item under current key
+            if current_key:
+                item = line.strip()[2:].strip()
+                if item:
+                    current_list.append(item)
+            continue
+
         if ":" in line:
+            # Save previous list if any
+            if current_key and current_list:
+                result[current_key] = current_list
+                current_list = []
+
+            # Start new key
             key, value = line.split(":", 1)
-            result[key.strip()] = value.strip().strip('"').strip("'")
+            current_key = key.strip()
+            result[current_key] = value.strip().strip('"').strip("'")
+
+    # Save last list if any
+    if current_key and current_list:
+        result[current_key] = current_list
+
     return result
 
 
-def validate_skill_md(file_path: Path) -> tuple[bool, str]:
+def validate_skill_md(file_path: Path) -> tuple[bool, str, list[str]]:
     """
-    Validate SKILL.md has proper YAML frontmatter.
-    Returns (success, error_message).
+    Validate SKILL.md has proper YAML frontmatter and extract permissions.
+
+    Returns:
+        (success, error_message, permissions_list)
     """
     try:
         content = file_path.read_text(encoding="utf-8")
     except Exception as e:
-        return False, f"Cannot read file: {e}"
+        return False, f"Cannot read file: {e}", []
 
     if not content.startswith("---"):
-        return False, "Missing YAML frontmatter (must start with ---)"
+        return False, "Missing YAML frontmatter (must start with ---)", []
 
     parts = content.split("---", 2)
     if len(parts) < 3:
-        return False, "Invalid frontmatter (missing closing ---)"
+        return False, "Invalid frontmatter (missing closing ---)", []
 
     try:
         frontmatter = parse_simple_yaml(parts[1])
     except Exception as e:
-        return False, f"Invalid YAML: {e}"
+        return False, f"Invalid YAML: {e}", []
 
     if "name" not in frontmatter:
-        return False, "Missing required field: name"
+        return False, "Missing required field: name", []
     if "description" not in frontmatter:
-        return False, "Missing required field: description"
+        return False, "Missing required field: description", []
 
-    return True, ""
+    # Extract permissions if present
+    permissions = []
+    if "permissions" in frontmatter:
+        perm_str = frontmatter["permissions"]
+        # Handle both list and string formats
+        if isinstance(perm_str, str):
+            # Split on newlines or commas
+            for line in perm_str.replace(",", "\n").split("\n"):
+                line = line.strip()
+                if line and line.startswith("-"):
+                    line = line[1:].strip()
+                if line and (line.startswith("Read(") or line.startswith("Write(") or line.startswith("Bash(")):
+                    permissions.append(line)
+        elif isinstance(perm_str, list):
+            for perm in perm_str:
+                perm_str = str(perm).strip()
+                if perm_str and (perm_str.startswith("Read(") or perm_str.startswith("Write(") or perm_str.startswith("Bash(")):
+                    permissions.append(perm_str)
+
+    return True, "", permissions
 
 
 def validate_python(file_path: Path) -> tuple[bool, str]:
@@ -346,7 +395,8 @@ def validate_file(file_path: Path, verbose: bool = False) -> tuple[bool, str]:
     suffix = file_path.suffix.lower()
 
     if name == "skill.md":
-        return validate_skill_md(file_path)
+        valid, error, permissions = validate_skill_md(file_path)
+        return valid, error
     elif suffix == ".py":
         return validate_python(file_path)
     elif suffix == ".sh":
@@ -360,27 +410,40 @@ def validate_file(file_path: Path, verbose: bool = False) -> tuple[bool, str]:
         return True, ""
 
 
-def validate_all_files(directory: Path, verbose: bool = False) -> tuple[bool, list]:
+def validate_all_files(directory: Path, verbose: bool = False) -> tuple[bool, list, list[str]]:
     """
-    Validate all files in directory recursively.
-    Returns (all_valid, list_of_errors).
+    Validate all files in directory recursively and extract permissions.
+    Returns (all_valid, list_of_errors, extracted_permissions).
     """
     errors = []
+    permissions = []
 
     # First check: SKILL.md must exist
     skill_md = directory / "SKILL.md"
     if not skill_md.exists():
         errors.append("SKILL.md not found in skill directory")
-        return False, errors
+        return False, errors, []
+
+    # Validate SKILL.md and extract permissions
+    valid, error, extracted_perms = validate_skill_md(skill_md)
+    if not valid:
+        errors.append(f"SKILL.md: {error}")
+        return False, errors, []
+
+    permissions = extracted_perms
+
+    # Store permissions in global for later registration
+    global _extracted_permissions
+    _extracted_permissions = extracted_perms
 
     # Validate all files
     for file_path in directory.rglob("*"):
         if file_path.is_file():
-            valid, error = validate_file(file_path, verbose)
+            valid, error = validate_file(file_path, False)
             if not valid:
                 errors.append(f"{file_path.name}: {error}")
 
-    return len(errors) == 0, errors
+    return len(errors) == 0, errors, permissions
 
 
 # =============================================================================
@@ -650,6 +713,73 @@ def write_manifest(manifest_path: Path, manifest: dict) -> None:
             )
         except OSError as e:
             print(f"  Warning: Could not write manifest: {e}")
+
+
+def register_permissions_in_settings(permissions: list[str], verbose: bool = False) -> bool:
+    """Register skill-declared permissions in settings.json.
+
+    Args:
+        permissions: List of permission strings (e.g., ["Read(P:/path/**)", "Write(C:/Users/.../**)"])
+        verbose: Print progress messages
+
+    Returns:
+        True if successful, False otherwise
+    """
+    # NOTE: This is a new skill-declared permissions system for auto-registration
+    # No existing permission registration functions exist in this codebase
+
+    if not permissions:
+        return True  # Nothing to register
+
+    settings_path = Path.home() / ".claude" / "settings.json"
+
+    # Read existing settings
+    try:
+        with open(settings_path, encoding="utf-8") as f:
+            settings = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        if verbose:
+            print(f"  Warning: Could not read settings.json: {e}")
+        return False
+
+    allowlist = settings.get("allowlist", [])
+    added_count = 0
+
+    for perm in permissions:
+        # Skip if already in allowlist
+        if perm in allowlist:
+            continue
+
+        # Validate permission format
+        if not any(perm.startswith(prefix) for prefix in ("Read(", "Write(", "Bash(")):
+            if verbose:
+                print(f"  Warning: Invalid permission format: {perm}")
+            continue
+
+        # Add permission
+        allowlist.append(perm)
+        added_count += 1
+        if verbose:
+            print(f"  ✓ Registered permission: {perm}")
+
+    if added_count == 0:
+        if verbose:
+            print("  No new permissions to register")
+        return True
+
+    # Write back settings.json
+    try:
+        with open(settings_path, 'w', encoding='utf-8') as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+
+        if verbose:
+            print(f"  ✓ Registered {added_count} permission(s) in settings.json")
+        return True
+
+    except (OSError, json.JSONDecodeError) as e:
+        if verbose:
+            print(f"  Error: Could not write settings.json: {e}")
+        return False
 
 
 def update_manifest_entry(dest: Path, source_url: str, verbose: bool = False) -> None:
@@ -1026,9 +1156,9 @@ Examples:
 
         print(f"\nDownloaded {len(downloaded)} file(s)")
 
-        # Step 2: Validate all files
+        # Step 2: Validate all files and extract permissions
         print("\nValidating files...")
-        valid, errors = validate_all_files(temp_path, args.verbose)
+        valid, errors, permissions = validate_all_files(temp_path, args.verbose)
 
         if not valid:
             print("\nValidation failed:", file=sys.stderr)
@@ -1070,6 +1200,12 @@ Examples:
     # Step 5: Update manifest
     try:
         update_manifest_entry(dest, args.url, args.verbose)
+
+        # Step 5.5: Register skill-declared permissions
+        if permissions:
+            print("\nRegistering permissions...")
+            if not register_permissions_in_settings(permissions, args.verbose):
+                print("  Warning: Permission registration failed (install continues)")
     except Exception as e:
         print(f"  Warning: Could not update manifest: {e}")
 

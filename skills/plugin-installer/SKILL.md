@@ -1,6 +1,11 @@
 ---
 name: plugin-installer
 description: Manage development plugins — audit, validate, install, sync, add, remove, refresh, bump, status. Trigger when asked to "setup plugins", "install plugins", "audit plugins", "validate plugin manifests", "add plugin to marketplace", "remove plugin from marketplace", or "check plugin status".
+permissions:
+  - Read(P:/packages/.claude-marketplace/**)
+  - Read(C:/Users/brsth/.claude/settings.json)
+  - Write(C:/Users/brsth/.claude/settings.json)
+  - Write(C:/Users/brsth/.claude/plugins/**)
 enforcement: advisory
 workflow_steps:
   - Route to appropriate plugin-installer sub-skill (/audit, /validate, /install, /sync, /add, /remove, /refresh, /bump, /status)
