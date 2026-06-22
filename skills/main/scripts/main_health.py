@@ -1519,6 +1519,91 @@ def run_fap_layer_stats_check() -> CheckResult:
         )
 
 
+# NOTE: NEW check — searched scripts/ for run_gate_fp_readiness_check / gate_fp_readiness,
+# no existing implementation to reuse. Mirrors run_fap_layer_stats_check (informational,
+# fail-open, reads a local diagnostics file).
+def run_gate_fp_readiness_check() -> CheckResult:
+    """TRANSIENT (added 2026-06-22): count Stop-gate blocks accrued since the
+    cc-aca-epistemic 0.2.56 quote-exemption fixes, to know when there's enough
+    real-world data to measure their false-positive impact vs the pre-fix baseline
+    (53 blocks / 14d). When >=40 accrue, prompt to run the labeled FP analysis.
+    RETIRE this check (remove the function + its checks.append) once that
+    determination is made — it is not a permanent health signal.
+    """
+    import sqlite3
+
+    SINCE = "2026-06-22"  # date the 0.2.56 fixes landed
+    THRESHOLD = 40
+    # Real hooks diagnostics dir (NOT CLAUDE_DIR, which is the plugin dir here);
+    # matches the absolute convention used elsewhere in this file (e.g. line ~1127).
+    diag_dir = Path("P:/.claude/hooks/logs/diagnostics")
+    jsonl = diag_dir / "stop_blocks.jsonl"
+    db = diag_dir / "diagnostics.db"
+
+    def _canon(name: str) -> str:
+        n = (name or "").strip().lower()
+        if n.startswith("stop.py:"):
+            n = n[len("stop.py:"):]
+        if n.endswith(".py"):
+            n = n[:-3]
+        for pre in ("stophook_", "stop_"):
+            if n.startswith(pre):
+                n = n[len(pre):]
+        if n.endswith("_gate"):
+            n = n[:-5]
+        return n or "(unknown)"
+
+    seen: set = set()
+    try:
+        if jsonl.exists():
+            for line in jsonl.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                ts = str(r.get("timestamp", ""))
+                if ts[:10] >= SINCE:
+                    seen.add((_canon(r.get("gate_name", "")), ts[:19]))
+        if db.exists():
+            conn = sqlite3.connect(str(db))
+            try:
+                for ts, hk in conn.execute(
+                    "SELECT timestamp, hook_name FROM hooks "
+                    "WHERE action='block' AND event_type='Stop'"
+                ):
+                    ts = str(ts)
+                    if ts[:10] >= SINCE:
+                        seen.add((_canon(hk), ts[:19]))
+            finally:
+                conn.close()
+    except Exception as e:
+        return CheckResult(
+            name="gate_fp_readiness",
+            status="healthy",
+            message=f"Gate-FP readiness: read error ({e})",
+        )
+
+    n = len(seen)
+    if n >= THRESHOLD:
+        return CheckResult(
+            name="gate_fp_readiness",
+            status="warning",
+            message=f"Gate-FP measurement READY: {n} Stop blocks since 0.2.56 (>={THRESHOLD}).",
+            details=[
+                "Say 're-run the gate-FP ranking' to run the labeled FP analysis "
+                "vs the pre-fix baseline (53 blocks/14d), then retire this check.",
+            ],
+        )
+    return CheckResult(
+        name="gate_fp_readiness",
+        status="healthy",
+        message=f"Gate-FP data: {n}/{THRESHOLD} Stop blocks accrued since 0.2.56 — not enough yet.",
+    )
+
+
 def run_env_changes_check() -> CheckResult:
     """Check for environment variable changes in settings.json.
 
@@ -1867,6 +1952,10 @@ def run_all_checks(
 
     # FAP layer stats (fast, always run) - tracks regex vs semantic hit rates
     checks.append(run_fap_layer_stats_check())
+
+    # Gate-FP readiness (fast, always run) - TRANSIENT, retire after the 0.2.56 FP
+    # determination (see run_gate_fp_readiness_check docstring).
+    checks.append(run_gate_fp_readiness_check())
 
     # Slow checks (skip in quick mode)
     slow_checks = [
