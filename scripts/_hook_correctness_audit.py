@@ -32,6 +32,75 @@ _BOOTSTRAP_DEFINES_ALIAS = re.compile(
     r"import\s+sys\s+as\s+_\w+|from\s+pathlib\s+import\s+Path\s+as\s+_\w+"
 )
 
+# ponytail: curated list of add-on CLIs hooks may shell out to but that are NOT
+# guaranteed on every host. Git-Bash builtins (grep/sed/awk/cat/echo/printf) are
+# deliberately excluded — they ship with the hook's runtime, so flagging them is
+# noise. When a hook invokes one of these and it is absent from PATH, the hook
+# either crashes (unguarded) or silently degrades (guarded). Surfacing this at
+# audit time prevents the "jq: command not found" class of runtime hook errors.
+_EXTERNAL_TOOLS = ("jq", "rg", "fzf", "fd", "bat", "gh", "node", "npm",
+                   "curl", "wget", "openssl", "sqlite3", "docker", "kubectl")
+_BASH_GUARD_RES = {
+    t: re.compile(rf"command\s+-v\s+{re.escape(t)}\b|\bwhich\s+{re.escape(t)}\b|\btype\s+{re.escape(t)}\b")
+    for t in _EXTERNAL_TOOLS
+}
+_PY_GUARD_RE = re.compile(r"shutil\.which\s*\(\s*[\"']([\w.]+)[\"']")
+
+
+def _scan_external_deps(fpath: Path, txt: str, plugin_name: str, rel: str) -> list[dict]:
+    """Flag external-CLI invocations a hook relies on but PATH currently lacks.
+
+    Distinguishes unguarded use (hook WILL crash at runtime — the original
+    pi-caller-inject.sh bug) from guarded use (command -v / shutil.which guard
+    → degrades gracefully; install for full functionality).
+    """
+    import shutil
+    is_sh = fpath.suffix == ".sh"
+    referenced: set[str] = set()
+    guarded: set[str] = set()
+    if is_sh:
+        for t in _EXTERNAL_TOOLS:
+            # command-position invocation: start-of-line or after |;&` or $(
+            inv = re.compile(rf"(?:^|[|;&`]|\$\()\s*(?:command\s+)?{re.escape(t)}\b", re.MULTILINE)
+            if inv.search(txt):
+                referenced.add(t)
+            if _BASH_GUARD_RES[t].search(txt):
+                guarded.add(t)
+    else:
+        for t in _EXTERNAL_TOOLS:
+            inv = re.compile(
+                rf"(?:subprocess\.(?:run|call|Popen|check_output|check_call)\s*\(\s*\[?\s*[\"']"
+                rf"|os\.system\s*\(\s*[\"'][^\"]*\b)"
+                rf"{re.escape(t)}\b"
+            )
+            if inv.search(txt):
+                referenced.add(t)
+        for m in _PY_GUARD_RE.finditer(txt):
+            if m.group(1) in _EXTERNAL_TOOLS:
+                guarded.add(m.group(1))
+                referenced.add(m.group(1))
+    out = []
+    for t in sorted(referenced):
+        if shutil.which(t) is not None:
+            continue
+        is_guarded = t in guarded
+        out.append({
+            "plugin": plugin_name,
+            "file": rel,
+            "type": "guarded_external_dependency" if is_guarded else "missing_external_dependency",
+            "message": (
+                f"Hook invokes external CLI '{t}' which is NOT on PATH. "
+                + ("A command-v/which guard is present, so the hook degrades gracefully — "
+                   "install for full functionality."
+                   if is_guarded else
+                   "No command-v/which guard found — hook WILL crash at runtime on this host. "
+                   "Add a guard or install the dependency.")
+            ),
+            "line": None,
+            "fix_available": False,
+        })
+    return out
+
 
 def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = None) -> list[dict]:
     """Audit all plugin hook files for correctness issues."""
@@ -177,6 +246,12 @@ def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = Non
                     })
                     break
 
+        # 7. External CLI dependency on PATH? (jq/rg/fzf/... — the
+        # "command not found" runtime-hook-error class.)
+        results.extend(_scan_external_deps(
+            fpath, txt, plugin_name,
+            str(fpath.relative_to(plugins_dir.parent.parent)),
+        ))
         return results
 
     # Walk all plugin hooks directories
@@ -191,8 +266,20 @@ def audit_hook_correctness(plugins_dir: Path, plugin_filter: Optional[str] = Non
             hooks_path = plugin / hook_dir
             if not hooks_path.exists():
                 continue
-            for fpath in sorted(hooks_path.glob("*.py")):
+            for fpath in sorted(list(hooks_path.glob("*.py")) + list(hooks_path.glob("*.sh"))):
                 if fpath.name.startswith("_"):
+                    continue
+                # .sh hooks: skip Python syntax checks (ast.parse would fail),
+                # but still scan for missing external-CLI dependencies.
+                if fpath.suffix == ".sh":
+                    try:
+                        stxt = fpath.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    findings.extend(_scan_external_deps(
+                        fpath, stxt, plugin.name,
+                        str(fpath.relative_to(plugins_dir.parent.parent)),
+                    ))
                     continue
                 for finding in _check_file(fpath, plugin.name):
                     findings.append(finding)
