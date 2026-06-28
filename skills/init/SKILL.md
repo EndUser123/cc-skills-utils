@@ -13,7 +13,6 @@ aliases:
 
 suggest:
   - /gitready
-  - /standards
 ---
 
 
@@ -38,7 +37,6 @@ Initialize CLAUDE.md at module/feature root for guidance.
 
 ### Architecture Alignment
 - Integrates with `/build` for feature development
-- Works with `/standards` for compliance
 - Integrates with `/nse` for Next Step Engine
 
 ## Your Workflow

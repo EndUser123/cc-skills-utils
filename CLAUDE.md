@@ -7,7 +7,7 @@ Utility skills for Claude Code — git operations, system health, plugin managem
 | Skill | Purpose | Home |
 |-------|---------|------|
 | /git | Unified Fleet & Git Management (Sync, Batch, Safety) | `git/` |
-| /health | Unified System Health, Observability, and Ops | `health/` |
+| /main | Real-time infrastructure health probe (alias: /health) | `main/` |
 | /usm | Universal Skill and Plugin Manager | `usm/` |
 | /init | Initialize CLAUDE.md at module/feature root | `init/` |
 | /plugin-installer | Plugin audit, validate, install, sync, add, remove, refresh, bump, status | `plugin-installer/` |

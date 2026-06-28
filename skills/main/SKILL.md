@@ -18,7 +18,6 @@ workflow_steps:
   - health: Run main_health.py with appropriate flags
   - reflect: Optional /reflect invocation (skip if --quick used)
 suggest:
-  - /health
   - /usm
   - /plugin-doctor
   - /recover
