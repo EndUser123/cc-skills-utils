@@ -1,0 +1,547 @@
+{
+  "timestamp": "2026-06-27T22:48:39.448976",
+  "duration_ms": 5,
+  "critic_used": false,
+  "scope": {
+    "since_days": 365,
+    "cutoff": "2025-06-27T22:48:39.443970",
+    "focus": [
+      "claims",
+      "gates",
+      "promotion",
+      "receipts",
+      "regression"
+    ],
+    "lookback": 6,
+    "transcripts_scanned": 2,
+    "diagnostics_rows": 12,
+    "sources": {
+      "transcripts_root": "C:\\Users\\brsth\\AppData\\Local\\Temp\\tmpuzjw0qk_\\projects",
+      "diagnostics_db": "C:\\Users\\brsth\\AppData\\Local\\Temp\\tmpuzjw0qk_\\diagnostics\\diagnostics.db",
+      "health_history": "C:\\Users\\brsth\\AppData\\Local\\Temp\\tmpuzjw0qk_\\health_history.jsonl",
+      "registered_hooks": 1
+    }
+  },
+  "summary": {
+    "total_findings": 14,
+    "by_severity": {
+      "critical": 1,
+      "high": 7,
+      "medium": 3,
+      "info": 3
+    },
+    "by_category": {
+      "claims": 5,
+      "gates": 3,
+      "receipts": 1,
+      "regression": 2,
+      "promotion": 3
+    },
+    "overall": "critical"
+  },
+  "findings": [
+    {
+      "id": "MR-0005",
+      "severity": "critical",
+      "category": "receipts",
+      "title": "Verdict contradicted by the immediately preceding tool result",
+      "evidence": [
+        "verdict: 'Confirmed working now.'",
+        "preceding result: 'Traceback: ModuleNotFoundError: No module named foo'"
+      ],
+      "confidence": 0.9,
+      "source_refs": [
+        "transcript:t1.jsonl#entry3"
+      ],
+      "recommended_action": "Withdraw or re-qualify the verdict; the receipt shows an error/not-found, not success.",
+      "rationale": "Highest-confidence finding: the cited receipt refutes the claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0001",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 'Root Cause: the env var was unset. Fixed. Verified.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry1"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0002",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 't. Fixed. Verified.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry1"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0003",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 'as unset. Fixed. Verified.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry1"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0004",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 'Confirmed working now.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry3"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0008",
+      "severity": "high",
+      "category": "gates",
+      "title": "Gate-class hook never blocks (rca_gate: 6 invocations, 0 blocks)",
+      "evidence": [
+        "action distribution: {'allow': 6}"
+      ],
+      "confidence": 0.7,
+      "source_refs": [
+        "diagnostics.db:hook=rca_gate"
+      ],
+      "recommended_action": "Confirm the gate is fail-closed where it should be; a never-blocking gate may be warn-mode or fail-open.",
+      "rationale": "A blocking gate that never blocks is either inert or permissive.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0009",
+      "severity": "high",
+      "category": "gates",
+      "title": "Hook error-dominated (broken_hook: 6/6 errors)",
+      "evidence": [
+        "action distribution: {'error': 6}"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "diagnostics.db:hook=broken_hook"
+      ],
+      "recommended_action": "Inspect hook stderr; an erroring hook may be fail-open.",
+      "rationale": "Hooks that error over half the time are likely not enforcing.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0010",
+      "severity": "high",
+      "category": "regression",
+      "title": "Recurring error signature across 2 transcripts",
+      "evidence": [
+        "signature: 'ModuleNotFoundError: No module named foo'",
+        "in: ['t1.jsonl', 't2.jsonl']"
+      ],
+      "confidence": 0.75,
+      "source_refs": [
+        "transcript-cluster:ModuleNotFoundError: No module named foo"
+      ],
+      "recommended_action": "Add a replay test that reproduces this signature.",
+      "rationale": "Recurring identical errors are prime regression-test material.",
+      "promotion_ready": false,
+      "proposed_test": "Fixture a transcript/tool_result containing: ModuleNotFoundError: No module named foo and assert the responsible code path raises (or no longer raises) it.",
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0006",
+      "severity": "medium",
+      "category": "claims",
+      "title": "Negative-existence claim without a search tool receipt",
+      "evidence": [
+        "claim: 'he helper is unused, so I removed it. ModuleNotFoundError:'"
+      ],
+      "confidence": 0.7,
+      "source_refs": [
+        "transcript:t2.jsonl#entry0"
+      ],
+      "recommended_action": "Back the claim with Grep/Glob/Read evidence before asserting absence.",
+      "rationale": "Absence claims need a positive search, not inference.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0007",
+      "severity": "medium",
+      "category": "gates",
+      "title": "Registered hook with zero recent invocations: inert_ghost_Stop.py",
+      "evidence": [
+        "registered in hooks.json/settings.json, absent from diagnostics"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "diagnostics.db:hook=inert_ghost_Stop.py"
+      ],
+      "recommended_action": "Confirm the hook is wired and firing; it may be inert.",
+      "rationale": "A gate that never fires provides no protection - verify liveness.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0011",
+      "severity": "medium",
+      "category": "regression",
+      "title": "Health check [cks] flipped healthy to critical 2 times",
+      "evidence": [
+        "flips observed: 2"
+      ],
+      "confidence": 0.7,
+      "source_refs": [
+        "health_history.jsonl:check=cks"
+      ],
+      "recommended_action": "Stabilize the check or its underlying subsystem.",
+      "rationale": "Intermittent health flips indicate a flaky/regressing condition.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0012",
+      "severity": "info",
+      "category": "promotion",
+      "title": "Pattern [verdict-without-receipt] recurs across 1 source(s)",
+      "evidence": [
+        "recurrence: 4 finding(s), 1 source(s)"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "transcript:t1.jsonl"
+      ],
+      "recommended_action": "Consider graduating this into a deterministic runtime gate (conservative; gate should warn before block in production).",
+      "rationale": "Meets recurrence bar; remaining promotion criteria need a replay pass.",
+      "promotion_ready": true,
+      "proposed_test": "Fixture: assistant turn with a Root Cause verdict and no preceding tool_use triggers the gate.",
+      "proposed_runtime_gate": "Stop hook: regex-match verdict phrases (Root Cause/Fixed/Verified/Resolved) and require a tool_use event in the preceding window; warn-first."
+    },
+    {
+      "id": "MR-0013",
+      "severity": "info",
+      "category": "promotion",
+      "title": "Pattern [receipts] recurs across 1 source(s)",
+      "evidence": [
+        "recurrence: 1 finding(s), 1 source(s)"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "transcript:t1.jsonl"
+      ],
+      "recommended_action": "Consider graduating this into a deterministic runtime gate (conservative; gate should warn before block in production).",
+      "rationale": "Meets recurrence bar; remaining promotion criteria need a replay pass.",
+      "promotion_ready": true,
+      "proposed_test": "Fixture: reproduce the pattern and assert the gate fires.",
+      "proposed_runtime_gate": "Stop hook: detect this recurring pattern and require supporting evidence; warn-first."
+    },
+    {
+      "id": "MR-0014",
+      "severity": "info",
+      "category": "promotion",
+      "title": "Pattern [negative-existence-without-search] recurs across 1 source(s)",
+      "evidence": [
+        "recurrence: 1 finding(s), 1 source(s)"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "transcript:t2.jsonl"
+      ],
+      "recommended_action": "Consider graduating this into a deterministic runtime gate (conservative; gate should warn before block in production).",
+      "rationale": "Meets recurrence bar; remaining promotion criteria need a replay pass.",
+      "promotion_ready": true,
+      "proposed_test": "Fixture: an absence claim with no preceding search tool triggers the gate.",
+      "proposed_runtime_gate": "PreToolUse/Stop hook: on absence claims require a Grep/Glob/Read in the same turn; warn-first."
+    }
+  ],
+  "unsupported_claims": [
+    {
+      "id": "MR-0001",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 'Root Cause: the env var was unset. Fixed. Verified.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry1"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0002",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 't. Fixed. Verified.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry1"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0003",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 'as unset. Fixed. Verified.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry1"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0004",
+      "severity": "high",
+      "category": "claims",
+      "title": "Confident verdict without a supporting tool receipt",
+      "evidence": [
+        "verdict phrase: 'Confirmed working now.'"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "transcript:t1.jsonl#entry3"
+      ],
+      "recommended_action": "Run the discriminating tool call before asserting the verdict, or hedge the claim (likely/probably).",
+      "rationale": "Claim-Verification rule requires a tool call in the recent window for any Root Cause / Fixed / Verified class claim.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0006",
+      "severity": "medium",
+      "category": "claims",
+      "title": "Negative-existence claim without a search tool receipt",
+      "evidence": [
+        "claim: 'he helper is unused, so I removed it. ModuleNotFoundError:'"
+      ],
+      "confidence": 0.7,
+      "source_refs": [
+        "transcript:t2.jsonl#entry0"
+      ],
+      "recommended_action": "Back the claim with Grep/Glob/Read evidence before asserting absence.",
+      "rationale": "Absence claims need a positive search, not inference.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    }
+  ],
+  "gate_health_findings": [
+    {
+      "id": "MR-0008",
+      "severity": "high",
+      "category": "gates",
+      "title": "Gate-class hook never blocks (rca_gate: 6 invocations, 0 blocks)",
+      "evidence": [
+        "action distribution: {'allow': 6}"
+      ],
+      "confidence": 0.7,
+      "source_refs": [
+        "diagnostics.db:hook=rca_gate"
+      ],
+      "recommended_action": "Confirm the gate is fail-closed where it should be; a never-blocking gate may be warn-mode or fail-open.",
+      "rationale": "A blocking gate that never blocks is either inert or permissive.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0009",
+      "severity": "high",
+      "category": "gates",
+      "title": "Hook error-dominated (broken_hook: 6/6 errors)",
+      "evidence": [
+        "action distribution: {'error': 6}"
+      ],
+      "confidence": 0.8,
+      "source_refs": [
+        "diagnostics.db:hook=broken_hook"
+      ],
+      "recommended_action": "Inspect hook stderr; an erroring hook may be fail-open.",
+      "rationale": "Hooks that error over half the time are likely not enforcing.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0007",
+      "severity": "medium",
+      "category": "gates",
+      "title": "Registered hook with zero recent invocations: inert_ghost_Stop.py",
+      "evidence": [
+        "registered in hooks.json/settings.json, absent from diagnostics"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "diagnostics.db:hook=inert_ghost_Stop.py"
+      ],
+      "recommended_action": "Confirm the hook is wired and firing; it may be inert.",
+      "rationale": "A gate that never fires provides no protection - verify liveness.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    }
+  ],
+  "regression_candidates": [
+    {
+      "id": "MR-0010",
+      "severity": "high",
+      "category": "regression",
+      "title": "Recurring error signature across 2 transcripts",
+      "evidence": [
+        "signature: 'ModuleNotFoundError: No module named foo'",
+        "in: ['t1.jsonl', 't2.jsonl']"
+      ],
+      "confidence": 0.75,
+      "source_refs": [
+        "transcript-cluster:ModuleNotFoundError: No module named foo"
+      ],
+      "recommended_action": "Add a replay test that reproduces this signature.",
+      "rationale": "Recurring identical errors are prime regression-test material.",
+      "promotion_ready": false,
+      "proposed_test": "Fixture a transcript/tool_result containing: ModuleNotFoundError: No module named foo and assert the responsible code path raises (or no longer raises) it.",
+      "proposed_runtime_gate": null
+    },
+    {
+      "id": "MR-0011",
+      "severity": "medium",
+      "category": "regression",
+      "title": "Health check [cks] flipped healthy to critical 2 times",
+      "evidence": [
+        "flips observed: 2"
+      ],
+      "confidence": 0.7,
+      "source_refs": [
+        "health_history.jsonl:check=cks"
+      ],
+      "recommended_action": "Stabilize the check or its underlying subsystem.",
+      "rationale": "Intermittent health flips indicate a flaky/regressing condition.",
+      "promotion_ready": false,
+      "proposed_test": null,
+      "proposed_runtime_gate": null
+    }
+  ],
+  "promotion_candidates": [
+    {
+      "id": "MR-0012",
+      "severity": "info",
+      "category": "promotion",
+      "title": "Pattern [verdict-without-receipt] recurs across 1 source(s)",
+      "evidence": [
+        "recurrence: 4 finding(s), 1 source(s)"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "transcript:t1.jsonl"
+      ],
+      "recommended_action": "Consider graduating this into a deterministic runtime gate (conservative; gate should warn before block in production).",
+      "rationale": "Meets recurrence bar; remaining promotion criteria need a replay pass.",
+      "promotion_ready": true,
+      "proposed_test": "Fixture: assistant turn with a Root Cause verdict and no preceding tool_use triggers the gate.",
+      "proposed_runtime_gate": "Stop hook: regex-match verdict phrases (Root Cause/Fixed/Verified/Resolved) and require a tool_use event in the preceding window; warn-first."
+    },
+    {
+      "id": "MR-0013",
+      "severity": "info",
+      "category": "promotion",
+      "title": "Pattern [receipts] recurs across 1 source(s)",
+      "evidence": [
+        "recurrence: 1 finding(s), 1 source(s)"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "transcript:t1.jsonl"
+      ],
+      "recommended_action": "Consider graduating this into a deterministic runtime gate (conservative; gate should warn before block in production).",
+      "rationale": "Meets recurrence bar; remaining promotion criteria need a replay pass.",
+      "promotion_ready": true,
+      "proposed_test": "Fixture: reproduce the pattern and assert the gate fires.",
+      "proposed_runtime_gate": "Stop hook: detect this recurring pattern and require supporting evidence; warn-first."
+    },
+    {
+      "id": "MR-0014",
+      "severity": "info",
+      "category": "promotion",
+      "title": "Pattern [negative-existence-without-search] recurs across 1 source(s)",
+      "evidence": [
+        "recurrence: 1 finding(s), 1 source(s)"
+      ],
+      "confidence": 0.6,
+      "source_refs": [
+        "transcript:t2.jsonl"
+      ],
+      "recommended_action": "Consider graduating this into a deterministic runtime gate (conservative; gate should warn before block in production).",
+      "rationale": "Meets recurrence bar; remaining promotion criteria need a replay pass.",
+      "promotion_ready": true,
+      "proposed_test": "Fixture: an absence claim with no preceding search tool triggers the gate.",
+      "proposed_runtime_gate": "PreToolUse/Stop hook: on absence claims require a Grep/Glob/Read in the same turn; warn-first."
+    }
+  ],
+  "recommended_actions": [
+    "Triage 1 critical finding(s) first - each ships with explicit evidence refs.",
+    "Review 7 high-severity finding(s); reproduce before acting.",
+    "Evaluate 3 promotion candidate(s); replay-test before graduating to a runtime gate.",
+    "Verify liveness of 1 registered-but-silent hook(s)."
+  ]
+}
