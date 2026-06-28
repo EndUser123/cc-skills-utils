@@ -76,6 +76,36 @@ def _load_json(path: Path) -> tuple[bool, Optional[dict]]:
             return True, json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         return False, None
+def _resolve_plugin_marketplace(pkg_name: str, installed_data: Optional[dict] = None) -> str:
+    """Return the marketplace key for pkg_name (e.g. 'local', 'pi-plugin-cc').
+
+    The cache layout is cache/<marketplace>/<plugin>/<version>, not always
+    cache/local. installed_plugins.json keys are 'pkg@marketplace'. Falls
+    back to scanning cache/*/, then 'local'.
+    """
+    if installed_data is None:
+        installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
+        ok, installed_data = _load_json(installed_path)
+        if not ok:
+            installed_data = None
+    if isinstance(installed_data, dict) and "plugins" in installed_data:
+        for key in installed_data["plugins"]:
+            if "@" in key:
+                p, m = key.split("@", 1)
+                if p == pkg_name:
+                    return m
+    cache_top = Path(os.path.expanduser("~/.claude/plugins/cache"))
+    if cache_top.exists():
+        for market_dir in cache_top.iterdir():
+            if market_dir.is_dir() and (market_dir / pkg_name).is_dir():
+                return market_dir.name
+    return "local"
+
+def _cache_dir_for_plugin(pkg_name: str, installed_data: Optional[dict] = None) -> Path:
+    """Marketplace-aware cache base dir for pkg_name."""
+    market = _resolve_plugin_marketplace(pkg_name, installed_data)
+    return Path(os.path.expanduser(f"~/.claude/plugins/cache/{market}"))
+
 def _save_json(path: Path, obj: dict) -> bool:
     """Save JSON safely, return success."""
     try:
@@ -2335,12 +2365,12 @@ def main(argv: list[str]) -> int:
         import shutil
         import subprocess
         from datetime import datetime, timezone
-        cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
         pkg_name = args.bump
+        cache_root = _cache_dir_for_plugin(pkg_name)
         old_ver = bump_result["old_version"]
         new_ver = bump_result["new_version"]
         cache_dir = cache_root / pkg_name
-        plugin_key = f"{pkg_name}@local"
+        plugin_key = f"{pkg_name}@{_resolve_plugin_marketplace(pkg_name)}"
 
         # 1. Update installed_plugins.json so Claude Code knows about new version
         installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
@@ -2371,11 +2401,18 @@ def main(argv: list[str]) -> int:
                     print(f"  {C_YELLOW}Cache sync error: {err}{C_RESET}")
             print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
 
-        # Remove old version dir
-        old_cache = cache_dir / old_ver
-        if old_cache.exists() and old_ver != new_ver:
-            shutil.rmtree(str(old_cache))
-            print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{old_ver}{C_RESET}")
+        # Remove ALL stale version dirs — runtime only loads the version in
+        # installed_plugins.json, so every other version dir is debt. Only
+        # ever keeping the new version prevents the accumulation the audit
+        # flags as "stale version dirs".
+        removed_versions = []
+        if cache_dir.exists():
+            for vdir in cache_dir.iterdir():
+                if vdir.is_dir() and vdir.name != new_ver:
+                    shutil.rmtree(str(vdir))
+                    removed_versions.append(vdir.name)
+        if removed_versions:
+            print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{', '.join(sorted(removed_versions))}{C_RESET}")
 
         # Post-bump: update marketplace index and verify zero drift
         print(f"\n{C_CYAN}=== Marketplace Sync ==={C_RESET}")
@@ -2453,8 +2490,23 @@ def main(argv: list[str]) -> int:
                 print(f"  {f['plugin']}: {[cf for cf in f['cache_only_files']]}")
         else:
             print("No cache-only files.")
+        # Stale version dirs are unambiguous debt — runtime only loads the
+        # version recorded in installed_plugins.json, so every older dir is
+        # dead weight. Auto-remove so the workflow never leaves accumulation.
+        import shutil
+        cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
+        deleted = []
+        for f in stale:
+            pkg = f["plugin"]
+            for stale_ver in f["stale_versions"]:
+                stale_path = cache_root / pkg / stale_ver
+                if stale_path.exists():
+                    shutil.rmtree(str(stale_path))
+                    deleted.append(f"{pkg}/{stale_ver}")
+        if deleted:
+            print(f"\n{C_GREEN}Removed {len(deleted)} stale version dir(s): {deleted}{C_RESET}")
         # Output machine-readable summary for downstream parsing
-        print(f"\nSummary: {len(stale)} stale, {len(modified)} drift, {len(cache_only)} cache-only")
+        print(f"\nSummary: 0 stale, {len(modified)} drift, {len(cache_only)} cache-only")
         return 0
     print("Auditing plugins...")
     plugin_results = audit_plugins(plugins_dir, mp_root, plugin_filter=args.plugins)
