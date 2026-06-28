@@ -118,6 +118,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 | **skill_deps** | Skill `depends_on_skills`/`suggest` references point to missing skills |
 | **wiki** | Wiki vault health — contradictions, orphan pages, broken wikilinks, stale claims (`/wiki lint`) |
 | **env_audit** | P:/.env presence + required keys (MINIMAX_*, ANTHROPIC_*, BIFROST_API_KEY). Missing/partial -> CRITICAL, fail fast (exit 2). |
+| **class_a_gate** | Class A RCA gate (`diagnostic_analysis_quality`) decision counts since 0.2.61 — sole source is `stop_gate_telemetry.jsonl` (diagnostics.db is blind to in-process gates). Informational; surface so the count can't be forgotten between runs. |
 
 ---
 
@@ -134,6 +135,8 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 **Inline Skill Suggestions:** When a check fails, actionable skill suggestions appear inline below the check output as `💡 Run /skill-name`. Suggestions are capped at 3 per check to avoid verbosity. Use `--suggest` to see a consolidated summary of all suggestions at end of run.
 
 **Periodic Problem Tracking:** For ongoing awareness of accumulating issues, consider running `/top-problems --diff` periodically. The `/main` health check covers system infrastructure; `/top-problems` covers evidence-accumulated risks from sessions, premortems, and critiques.
+
+**Behavioral Audit Over History:** Run `/main-review` weekly (or after debugging-heavy sessions) for a slower, evidence-first audit of recent transcripts, the diagnostics DB, and gate telemetry — it finds unsupported claims, inert/silent gates, receipt mismatches, regression candidates, and promotion candidates that real-time infrastructure checks can't see. `/main` probes current state; `/main-review` probes behavior over the recent window.
 
 **Permission Prompt Hygiene:** Run `/fewer-permission-prompts` if it has been more than 5 days since the last run. This scans recent transcripts and refreshes the read-only allowlist in `P:/.claude/settings.json` to reduce unnecessary prompts. The last known run was 2026-04-19 — run the command to check current transcript coverage if uncertain.
 

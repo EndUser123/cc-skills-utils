@@ -1604,6 +1604,89 @@ def run_gate_fp_readiness_check() -> CheckResult:
     )
 
 
+# NOTE: NEW check — grep of scripts/ confirmed no existing class_a gate telemetry
+# check. Mirrors run_fap_layer_stats_check (informational, fail-open, reads local
+# diagnostics). Reuses the canonical stop_gate_telemetry reader rather than
+# reimplementing JSONL parsing (single source of truth).
+def run_class_a_gate_check() -> CheckResult:
+    """Surface Class A RCA gate (diagnostic_analysis_quality) decision telemetry.
+
+    Added 2026-06-27 after the cc-aca-epistemic 0.2.61 fix flipped the gate to
+    block mode with a surgical discriminating_test guard. Verified facts that
+    motivate this check:
+      - diagnostics.db + stop_blocks.jsonl are BLIND to in-process gates; the
+        sole record of this gate's decisions is .state/stop_gate_telemetry.jsonl
+        (STOP_TELEMETRY=1).
+      - Stop.py:4756 logs every in-process gate decision (block/warn/allow).
+      - The gate's prior failure mode was *silence* (warn mode -> never blocked),
+        rediscoverable only by accident. Surfacing the counts on every /main run
+        is the cheap, durable answer to "we'll forget to check."
+
+    Intentionally INFORMATIONAL (status=healthy unless telemetry is unreadable):
+      - Telemetry counts cannot tell good blocks from bad, so no overfire warning
+        threshold is attempted (blocks are the gate WORKING, not a warning).
+      - The block COUNT itself is the prompt to spot-check for overfire.
+      - Detecting new Class A categories / gate drift is out of scope here — that
+        is the /main-review (dreaming reviewer) layer's job. This check only
+        surfaces the known gate's decision counts.
+    Fail-open: missing telemetry module/file -> healthy (nothing to report).
+    """
+    import sys as _sys
+    start = time.time()
+    lib_dir = Path("P:/.claude/hooks/__lib")
+
+    SINCE = "2026-06-27"  # 0.2.61 ship date (block mode + surgical guard)
+
+    try:
+        if str(lib_dir) not in _sys.path:
+            _sys.path.insert(0, str(lib_dir))
+        from stop_gate_telemetry import read_telemetry
+        records = read_telemetry()
+    except Exception as e:
+        return CheckResult(
+            name="class_a_gate",
+            status="healthy",
+            message=f"Class A gate telemetry unavailable ({e})",
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    rows = [
+        r for r in records
+        if r.get("gate") == "diagnostic_analysis_quality"
+        and str(r.get("ts", ""))[:10] >= SINCE
+    ]
+    blocks = sum(1 for r in rows if r.get("decision") == "block")
+    warns = sum(1 for r in rows if r.get("decision") == "warn")
+    allows = sum(1 for r in rows if r.get("decision") == "allow")
+
+    if not rows:
+        return CheckResult(
+            name="class_a_gate",
+            status="healthy",
+            message=(
+                f"Class A gate: 0 telemetry rows since {SINCE} "
+                "(STOP_TELEMETRY may be off, gate inert, or no diagnostic turns yet)"
+            ),
+            details=["• Verify DIAGNOSTIC_ANALYSIS_QUALITY_GATE_MODE=block + relevant_turn_kinds if RCA turns have occurred"],
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    details = [f"• {blocks} block / {warns} warn / {allows} allow since {SINCE} ({len(rows)} decisions)"]
+    if blocks > 0:
+        details.append(
+            f"• gate caught {blocks} premature RCA claim(s); spot-check a blocked turn "
+            "for overfire if concerned (legitimate focused RCA with a falsifier must NOT block)"
+        )
+
+    return CheckResult(
+        name="class_a_gate",
+        status="healthy",
+        message=f"Class A gate since {SINCE}: {blocks} block, {warns} warn, {allows} allow",
+        details=details,
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+
 def run_env_changes_check() -> CheckResult:
     """Check for environment variable changes in settings.json.
 
@@ -1957,6 +2040,11 @@ def run_all_checks(
     # determination (see run_gate_fp_readiness_check docstring).
     checks.append(run_gate_fp_readiness_check())
 
+    # Class A gate telemetry visibility (fast, always run) - surfaces the
+    # diagnostic_analysis_quality gate's block/warn/allow counts (sole source:
+    # stop_gate_telemetry.jsonl). See run_class_a_gate_check docstring.
+    checks.append(run_class_a_gate_check())
+
     # Slow checks (skip in quick mode)
     slow_checks = [
         ("cks", CLAUDE_DIR / "skills" / "cks" / "scripts" / "cks_health_check.py"),
@@ -1985,6 +2073,7 @@ def run_all_checks(
         pending.append(("spec_drift", lambda: run_spec_drift_check()))
         pending.append(("skill_deps", lambda: run_skill_dependency_check()))
         pending.append(("regen_cap", lambda: run_regen_cap_check()))
+        pending.append(("repo_upstream", lambda: run_check("repo_upstream", TOOLS_DIR / "repo_upstream_check.py", timeout=60)))
 
     if include_deps:
         pending.append(("deps", lambda: run_dependency_audit()))
