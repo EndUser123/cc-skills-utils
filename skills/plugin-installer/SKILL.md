@@ -149,6 +149,14 @@ hand-assembling the chain from settings.json + every hooks.json.
 
 `audit` (via `_hook_correctness_audit.py`) flags, in addition to syntax/import issues:
 
+- **`missing_external_dependency`** — a `.py` or `.sh` hook invokes an external CLI
+  (`jq`, `rg`, `fzf`, `fd`, `bat`, `gh`, `node`, `curl`, …) that is NOT on PATH, with
+  no `command -v` / `shutil.which` guard. This hook WILL crash at runtime — the
+  "jq: command not found" class of error. Install the dependency or add a guard.
+- **`guarded_external_dependency`** — same, but the hook DOES guard with `command -v`
+  / `shutil.which`, so it degrades gracefully when the CLI is absent. Advisory only —
+  install the CLI for full functionality. Git-Bash builtins (grep/sed/awk/cat) are
+  excluded (they ship with the hook's runtime).
 - **`block_reason_not_on_stderr`** — a `__lib/router.py` that blocks via `sys.exit(2)`
   but never writes `sys.stderr`. The harness shows ONLY stderr on exit-2, so the block
   reason is lost (bare "Blocked by hook"). Route blocks through an `_emit_block()` helper.
