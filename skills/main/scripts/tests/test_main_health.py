@@ -112,7 +112,7 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         "",
         "Settings bloat: 42KB (threshold 35KB)",
         1,
-        {"/standards"},
+        {"/config-audit"},
     ),
     # settings — "orphaned" pattern
     (
@@ -120,7 +120,7 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         "Orphaned env var: UNUSED_API_KEY",
         "",
         1,
-        {"/standards"},
+        {"/config-audit"},
     ),
     # skill_quality — "frontmatter" pattern
     (
@@ -168,7 +168,7 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         "P:/.env not found at P:/.env",
         "",
         1,
-        {"/standards"},
+        {"/claude-automation-recommender", "/config-audit"},
     ),
     # env_audit — "missing" pattern (partial P:/.env)
     (
@@ -176,7 +176,7 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         "Missing: MINIMAX_CONSOLE_COOKIE, ANTHROPIC_AUTH_TOKEN",
         "",
         1,
-        {"/standards"},
+        {"/claude-automation-recommender", "/config-audit"},
     ),
 ]
 

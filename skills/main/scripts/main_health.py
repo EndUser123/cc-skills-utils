@@ -268,16 +268,16 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
     # settings: size bloat
     ("settings", "bloat"): [
         {
-            "skill": "/standards",
-            "rationale": "Reviews settings against CSF/NIP standards for bloat",
+            "skill": "/config-audit",
+            "rationale": "Audits settings.json for bloat, redundancy, and token waste",
             "category": "quality",
         },
     ],
     # settings: orphaned env vars
     ("settings", "orphaned"): [
         {
-            "skill": "/standards",
-            "rationale": "Reviews settings against CSF/NIP standards, identifies unused env vars",
+            "skill": "/config-audit",
+            "rationale": "Audits settings.json for unused env vars and orphaned hook entries",
             "category": "quality",
         },
     ],
@@ -308,16 +308,26 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
     # env_audit: P:/.env missing or missing required keys
     ("env_audit", "not found"): [
         {
-            "skill": "/standards",
-            "rationale": "Recovers canonical P:/.env template and required keys",
+            "skill": "/claude-automation-recommender",
+            "rationale": "Recommends the canonical P:/.env setup for this project",
             "category": "correctness",
+        },
+        {
+            "skill": "/config-audit",
+            "rationale": "Reviews existing .env for over-engineering and redundancy once recovered",
+            "category": "quality",
         },
     ],
     ("env_audit", "missing"): [
         {
-            "skill": "/standards",
-            "rationale": "Recovers canonical P:/.env template and required keys",
+            "skill": "/claude-automation-recommender",
+            "rationale": "Recommends the canonical P:/.env setup for this project",
             "category": "correctness",
+        },
+        {
+            "skill": "/config-audit",
+            "rationale": "Reviews existing .env for over-engineering and redundancy once recovered",
+            "category": "quality",
         },
     ],
     # cve_remediation: fixable vulnerabilities
