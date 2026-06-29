@@ -24,7 +24,14 @@ POSTTOOLUSE_HOOKS = [
 
 STOP_HOOKS = [
     "cc-skills-utils_Stop_cache_reconciler.py",
+    "cc-skills-utils_Stop_auto_commit.py",
 ]
+
+# Per-hook subprocess timeout (seconds). Default 15s; auto_commit does git
+# add+commit+push and needs the same 30s budget it had under main Stop.py.
+HOOK_TIMEOUTS = {
+    "cc-skills-utils_Stop_auto_commit.py": 30,
+}
 
 PRETOOLUSE_HOOKS = [
     "cc-skills-utils_PreToolUse_dispatch_invariant.py",
@@ -67,7 +74,7 @@ def main() -> None:
                 [sys.executable, str(hook_path)],
                 input=input_data,
                 capture_output=True,
-                timeout=15,
+                timeout=HOOK_TIMEOUTS.get(hook_name, 15),
                 creationflags=flags,
             )
         except (subprocess.TimeoutExpired, Exception):
