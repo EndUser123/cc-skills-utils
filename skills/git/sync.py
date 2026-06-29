@@ -994,6 +994,20 @@ def repo_has_worktree_changes(repo: RepoInfo) -> bool:
     """Return True when a repo has uncommitted worktree changes."""
     return _has_uncommitted_worktree_changes(repo)
 
+
+def _index_has_gitlink(repo_path: Path) -> bool:
+    """True when the repo's index contains a gitlink (mode 160000).
+
+    Used to gate submodule init/orphan-recovery: repos with no gitlinks have
+    nothing to init and no orphaned pointers to recover, so we skip the
+    always-failing `git submodule update --init` that would otherwise run on
+    every repo during every sync.
+    """
+    result = run(["git", "ls-files", "--stage"], cwd=repo_path, silent=True)
+    return result.returncode == 0 and any(
+        line.startswith("160000 ") for line in result.stdout.splitlines()
+    )
+
 # ============================================================
 # PHASE 0: WORKTREE MODE (exits early)
 # ============================================================
@@ -1044,26 +1058,30 @@ def main():
                 return (repo.relative_path, "warning", "dirty (dry-run)")
             # Stage all changes including submodule contents
             run("git add -A", cwd=repo.path, silent=True)
-            # For submodules: init/update so submodule worktree matches index after add
-            submodule_result = run("git submodule update --init", cwd=repo.path, silent=True)
-            if submodule_result.returncode != 0:
-                # Orphaned submodules (registered gitlink but no .gitmodules entry) — remove stale gitlink, re-add as regular content
-                output = (submodule_result.stdout or "") + (submodule_result.stderr or "")
-                for line in output.splitlines():
-                    if "No url found for submodule path" in line:
-                        # Extract path between "path '" and "' in .gitmodules"
-                        start = line.find("path '") + 6
-                        end = line.find("' in .gitmodules")
-                        if start > 5 and end > start:
-                            submodule_path = line[start:end]
-                            submodule_full = os.path.join(repo.path, submodule_path)
-                            # Distinguish nested repo from orphaned gitlink:
-                            # - Has .git directory inside = nested repo, leave it alone
-                            # - No .git directory = orphaned gitlink, clean it up
-                            if os.path.isdir(os.path.join(submodule_full, '.git')):
-                                continue  # real nested repo, skip
-                            run(f"git rm --cached {submodule_path}", cwd=repo.path, silent=True)
-                            run(f"git add {submodule_path}", cwd=repo.path, silent=True)
+            # Submodule init/orphan-recovery only matters when the index holds a
+            # gitlink (mode 160000). Repos with no gitlinks have nothing to init
+            # and no orphaned pointers to recover — skipping avoids a wasted,
+            # always-failing `git submodule update --init` on every repo per sync.
+            if _index_has_gitlink(repo.path):
+                submodule_result = run("git submodule update --init", cwd=repo.path, silent=True)
+                if submodule_result.returncode != 0:
+                    # Orphaned submodules (registered gitlink but no .gitmodules entry) — remove stale gitlink, re-add as regular content
+                    output = (submodule_result.stdout or "") + (submodule_result.stderr or "")
+                    for line in output.splitlines():
+                        if "No url found for submodule path" in line:
+                            # Extract path between "path '" and "' in .gitmodules"
+                            start = line.find("path '") + 6
+                            end = line.find("' in .gitmodules")
+                            if start > 5 and end > start:
+                                submodule_path = line[start:end]
+                                submodule_full = os.path.join(repo.path, submodule_path)
+                                # Distinguish nested repo from orphaned gitlink:
+                                # - Has .git directory inside = nested repo, leave it alone
+                                # - No .git directory = orphaned gitlink, clean it up
+                                if os.path.isdir(os.path.join(submodule_full, '.git')):
+                                    continue  # real nested repo, skip
+                                run(f"git rm --cached {submodule_path}", cwd=repo.path, silent=True)
+                                run(f"git add {submodule_path}", cwd=repo.path, silent=True)
             # Re-add to catch any new files created by submodule update (timing issue: files created after first add)
             run("git add -A", cwd=repo.path, silent=True)
             commit_msg = generate_commit_message_for_repo(repo)
