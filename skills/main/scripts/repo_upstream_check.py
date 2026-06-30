@@ -21,10 +21,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 REPOS_DIR = Path("P:/packages/.github_repos")
 
+# Extra git checkouts to track alongside .github_repos. These are marketplace
+# clones whose upstream matters because a local fork is derived from them — when
+# they advance, the fork may need re-syncing. keyed by (path, display_label).
+EXTRA_TRACKED_REPOS = [
+    (Path("C:/Users/brsth/.claude/plugins/marketplaces/zai-coding-plugins"), "zai-coding-plugins (upstream of glm-plan-usage fork)"),
+]
 
-def _check_one(repo: Path, quick: bool) -> str | None:
+
+def _check_one(repo: Path, quick: bool, label: str | None = None) -> str | None:
     """Check a single repo. Returns status line if stale, None if up-to-date."""
-    name = repo.name
+    name = label or repo.name
     try:
         branch = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -67,14 +74,17 @@ def _check_one(repo: Path, quick: bool) -> str | None:
 
 def check_repos(quick: bool = False) -> list[str]:
     """Check all repos in parallel. Returns list of stale-repo detail lines."""
-    repos = sorted(
-        d for d in REPOS_DIR.iterdir()
+    repos: list[tuple[Path, str | None]] = sorted(
+        (d, None) for d in REPOS_DIR.iterdir()
         if d.is_dir() and (d / ".git").exists()
     )
+    for path, label in EXTRA_TRACKED_REPOS:
+        if path.is_dir() and (path / ".git").exists():
+            repos.append((path, label))
     results: list[str] = []
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_check_one, r, quick): r for r in repos}
+        futures = {pool.submit(_check_one, r, quick, lbl): r for r, lbl in repos}
         for future in as_completed(futures):
             line = future.result()
             if line:
@@ -89,6 +99,11 @@ def pull_repos(stale_details: list[str]) -> list[str]:
     for detail in stale_details:
         name = detail.split(":")[0].replace("• ", "")
         repo = REPOS_DIR / name
+        if not repo.is_dir():
+            # Extra tracked repo (e.g. a fork's upstream marketplace clone) —
+            # informational only; not auto-pulled. Re-sync the fork by hand.
+            pulled.append(f"• {name}: tracked-for-info only (fork upstream) — re-sync fork manually")
+            continue
         try:
             result = subprocess.run(
                 ["git", "pull", "--ff-only"],
