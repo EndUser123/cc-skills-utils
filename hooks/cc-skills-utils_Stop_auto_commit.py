@@ -374,32 +374,63 @@ def analyze_opportunities(cwd: Path) -> None:
         pass  # Don't fail commit due to opportunity analysis
 
 
-def find_repos_with_changes(root: Path) -> list[Path]:
-    """Find all git repos under root that have uncommitted changes.
+def _submodule_candidates(root: Path) -> list[Path]:
+    """Submodule working dirs the parent flags as changed.
 
-    Returns list of repo paths sorted by type (packages first, main last).
+    Derived from the parent's own status so we only probe submodules git
+    already reports, not every gitlink in the index. A dirty submodule
+    appears in parent status; filtering to entries with their own ``.git``
+    picks out submodules — absorbed ones too (no ``.gitmodules`` needed),
+    which matters here because cc-skills-utils/search-research are absorbed.
     """
-    repos = []
+    root_resolved = root.resolve()
+    out: list[Path] = []
+    for rel in _get_changed_paths(root):
+        sub = (root / rel).resolve()
+        if sub == root_resolved:
+            continue
+        if (sub / ".git").exists():
+            out.append(sub)
+    return out
 
-    # Check main repo
-    if has_uncommitted_changes(root):
-        repos.append(root)
 
-    # Check package repos. Default OFF: historically PROJECT_ROOT pointed at
-    # P:/.claude (so "packages" never resolved) and only the main repo committed.
-    # The location-independent resolver now finds the real fleet root, so without
-    # this gate the hook would start committing package repos too — a behavior
-    # change. Set AUTO_COMMIT_SCAN_PACKAGES=1 to opt into multi-repo commit.
+def find_repos_with_changes(root: Path) -> list[Path]:
+    """Find all git repos under root with uncommitted changes.
+
+    Submodules commit BEFORE the main repo so the main repo's ``git add -A``
+    stages the advanced submodule pointers in the same pass. Each submodule
+    gets its own debounce window (keyed by resolved path in _should_commit_now).
+    """
+    repos: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add_dirty(p: Path) -> None:
+        rp = p.resolve()
+        if rp in seen or rp == root.resolve():
+            return
+        if has_uncommitted_changes(p):
+            seen.add(rp)
+            repos.append(p)
+
+    # Dirty submodules (absorbed or declared). On by default — plugin dev
+    # happens in submodules; without this the hook cannot commit its own code.
+    # Opt out via AUTO_COMMIT_SUBMODULES=0.
+    if os.environ.get("AUTO_COMMIT_SUBMODULES", "1").lower() not in ("0", "false", "no"):
+        for sub in _submodule_candidates(root):
+            _add_dirty(sub)
+
+    # Legacy opt-in: nested repos that are direct children of packages/ and
+    # not gitlinks. Deduped against the submodule scan above.
     if os.environ.get("AUTO_COMMIT_SCAN_PACKAGES", "").lower() in ("1", "true", "yes"):
         packages_dir = root / "packages"
         if packages_dir.exists():
             for package_dir in packages_dir.iterdir():
                 if package_dir.is_dir() and (package_dir / ".git").exists():
-                    if has_uncommitted_changes(package_dir):
-                        repos.append(package_dir)
+                    _add_dirty(package_dir)
 
-    # Sort: main repo last (so hooks are finalized last)
-    repos.sort(key=lambda r: r == root)
+    # Main repo LAST so submodule pointers get staged by its add -A.
+    if has_uncommitted_changes(root):
+        repos.append(root)
     return repos
 
 
@@ -752,6 +783,9 @@ def _self_check() -> int:
     assert not str(OPPORTUNITIES_FILE).startswith(
         str(HOOKS_DIR)
     ), f"OPPORTUNITIES_FILE still inside hooks tree: {OPPORTUNITIES_FILE}"
+    # Submodule discovery invariant: candidates are real git working dirs.
+    for sub in _submodule_candidates(root):
+        assert (sub / ".git").exists(), f"submodule candidate lacks .git: {sub}"
     print(f"[self-check] OK  PROJECT_ROOT={root}  OPPORTUNITIES_FILE={OPPORTUNITIES_FILE}")
     return 0
 
