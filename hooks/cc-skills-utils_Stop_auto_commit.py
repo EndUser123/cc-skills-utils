@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -515,6 +517,71 @@ def _commit_grouped(cwd: Path, groups: dict[str, list[str]]) -> bool:
     return committed_any
 
 
+# Path-stability debounce: coalesce multi-turn logical units (source + test +
+# version) into one commit instead of one commit per Stop. External state per
+# plugin_state_log_contract (gitignored under .claude/state/). Keyed by repo —
+# the observable is the shared working tree. Fail-open: any state error commits.
+_DEBOUNCE_DIR = PROJECT_ROOT / ".claude" / "state" / "auto_commit"
+_MAX_DEFER_STOPS = int(os.environ.get("AUTO_COMMIT_MAX_DEFER_STOPS", "3"))
+
+
+def _debounce_state_path(cwd: Path) -> Path:
+    key = hashlib.sha1(str(cwd.resolve()).encode("utf-8")).hexdigest()[:12]
+    return _DEBOUNCE_DIR / f"debounce_{key}.json"
+
+
+def _should_commit_now(cwd: Path) -> bool:
+    """Commit on quiescence (changed-path set stable across Stops) or safety valve.
+
+    Defer while the change set keeps growing turn-to-turn so a logical unit
+    spanning multiple turns lands in one commit. Commit when the set is unchanged
+    from the prior Stop, or when pending changes have deferred past MAX_DEFER_STOPS
+    (bounds pile-up during long edit bursts). State is reset on every commit.
+    """
+    try:
+        current = sorted(_get_changed_paths(cwd))
+    except Exception:
+        return True  # can't read the tree safely -> commit (fail-open)
+
+    if not current:
+        return False
+
+    state_path = _debounce_state_path(cwd)
+    prior: list[str] = []
+    pending = 0
+    try:
+        if state_path.exists():
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            prior = sorted(data.get("paths", []))
+            pending = int(data.get("pending_stops", 0))
+    except Exception:
+        prior, pending = [], 0  # corrupt/missing -> fresh debounce window
+
+    quiescent = current == prior
+    new_pending = pending + 1
+    try:
+        _DEBOUNCE_DIR.mkdir(parents=True, exist_ok=True)
+        if quiescent:
+            state_path.unlink(missing_ok=True)  # reset window on commit
+        else:
+            state_path.write_text(
+                json.dumps({"paths": current, "pending_stops": new_pending}),
+                encoding="utf-8",
+            )
+    except Exception:
+        pass  # state IO failed; in-memory decision still holds
+
+    if quiescent:
+        return True
+    if new_pending >= _MAX_DEFER_STOPS:
+        try:
+            state_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return True  # safety valve — never let pending work pile up unbounded
+    return False
+
+
 def auto_commit(cwd: Path, do_push: bool = False) -> bool:
     """
     Auto-commit and push uncommitted changes.
@@ -536,6 +603,11 @@ def auto_commit(cwd: Path, do_push: bool = False) -> bool:
 
     # Check for uncommitted changes
     if not has_uncommitted_changes(cwd):
+        return False
+
+    # Debounce: coalesce multi-turn logical units; commit on quiescence.
+    # Defers mid-unit edits so source+test+version land together.
+    if not _should_commit_now(cwd):
         return False
 
     # Group changes by subsystem; commit each separately when heterogeneous.
