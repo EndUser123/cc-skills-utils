@@ -526,9 +526,12 @@ _GENERIC_SUBJECTS = frozenset({
 })
 
 # Replies that are not usable as a commit subject (affirmations, one-word nudges).
+# Replies that are not usable as a commit subject (affirmations, one-word nudges).
+# NOTE: "please" is intentionally excluded — it leads real directives
+# ("please fix the timeout"), not affirmations.
 _SKIP_PROMPT_LEADS = frozenset({
     "sure", "yes", "yeah", "yep", "no", "nope", "ok", "okay", "proceed",
-    "continue", "go", "done", "thanks", "thank", "agreed", "please",
+    "continue", "go", "done", "thanks", "thank", "agreed",
     "ship", "lgtm", "correct", "right", "exactly", "true", "false",
 })
 
@@ -572,19 +575,22 @@ def _transcript_subject(transcript_path: str) -> str | None:
             entry = json.loads(raw)
         except json.JSONDecodeError:
             continue
-        if entry.get("type") != "user":
-            continue
-        content = (entry.get("message") or {}).get("content")
-        if isinstance(content, str):
-            text = content
-        elif isinstance(content, list):
-            text = ""
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    text = block.get("text", "")
-                    break
-        else:
-            text = ""
+        # Claude Code stores the real prompt in `last-prompt` entries (lastPrompt
+        # field); `type=="user"` entries in the tail are usually tool_result blocks,
+        # not directives. Collect both so the heuristic survives either layout.
+        etype = entry.get("type")
+        text = ""
+        if etype == "last-prompt":
+            text = entry.get("lastPrompt") or ""
+        elif etype == "user":
+            content = (entry.get("message") or {}).get("content")
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        text = block.get("text", "")
+                        break
         if text:
             candidates.append(text.strip())
 
@@ -612,7 +618,10 @@ def _apply_fallback_chain(
     content or explicit merge semantics). Only a generic/empty parser result is
     replaced, and only ever with a directive or the group-key fallback.
     """
-    if msg and msg != DEFAULT_COMMIT_MESSAGE and msg != MERGE_COMMIT_MESSAGE and not _is_generic_message(msg):
+    # Preserve any message with real content: a non-default, non-generic parser
+    # result (this includes MERGE_COMMIT_MESSAGE and change-analyzer output —
+    # both carry semantics worth keeping). Only empty/generic/DEFAULT falls through.
+    if msg and msg != DEFAULT_COMMIT_MESSAGE and not _is_generic_message(msg):
         return msg
     if transcript_path:
         subj = _transcript_subject(transcript_path)
