@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -434,7 +435,7 @@ def find_repos_with_changes(root: Path) -> list[Path]:
     return repos
 
 
-def auto_commit_all() -> bool:
+def auto_commit_all(transcript_path: str | None = None) -> bool:
     """Auto-commit to all repos with uncommitted changes.
 
     Returns True if any changes were committed.
@@ -449,7 +450,7 @@ def auto_commit_all() -> bool:
     committed = False
     for repo in repos_with_changes:
         try:
-            if auto_commit(repo):
+            if auto_commit(repo, transcript_path=transcript_path):
                 rel_path = repo.relative_to(root)
                 print(f"[auto-commit] Committed to {rel_path}")
                 committed = True
@@ -511,12 +512,123 @@ def _stage_paths(cwd: Path, paths: list[str]) -> bool:
     return run_git_command(["add", "--"] + paths, cwd).returncode == 0
 
 
-def _commit_grouped(cwd: Path, groups: dict[str, list[str]]) -> bool:
+# --- commit-message fallback chain -------------------------------------------------
+# The staged-diff parser falls back to file-type templates ('update files',
+# 'update python module', 'update settings') that carry no real information.
+# Those mask the group-key fallback because they are non-empty. The chain below
+# detects a template/empty result and replaces it with, in order: the most recent
+# substantive user directive from the transcript, then the group-key fallback.
+# Never ships a bare file-type template.
+
+_GENERIC_SUBJECTS = frozenset({
+    "update files", "update python module", "update settings",
+    "update configuration", "update tests", "update command",
+})
+
+# Replies that are not usable as a commit subject (affirmations, one-word nudges).
+_SKIP_PROMPT_LEADS = frozenset({
+    "sure", "yes", "yeah", "yep", "no", "nope", "ok", "okay", "proceed",
+    "continue", "go", "done", "thanks", "thank", "agreed", "please",
+    "ship", "lgtm", "correct", "right", "exactly", "true", "false",
+})
+
+_COMMIT_PREFIX_RE = re.compile(r"^[a-z]+(?:\([^)]*\))?:\s*")
+
+
+def _is_generic_message(msg: str) -> bool:
+    """True when msg is a file-type template (or the default), not real content."""
+    if not msg or msg == DEFAULT_COMMIT_MESSAGE:
+        return True
+    subject = _COMMIT_PREFIX_RE.sub("", msg).strip().lower()
+    if subject in _GENERIC_SUBJECTS:
+        return True
+    # generate_subject() also emits 'update <noun> hook/skill/documentation'.
+    return subject.startswith("update ")
+
+
+def _transcript_subject(transcript_path: str) -> str | None:
+    """Most recent substantive user directive from the transcript tail.
+
+    Reads only the last ~64 KiB so cost is bounded regardless of transcript
+    size (the transcript is the session JSONL written by Claude Code). Returns
+    None when no usable directive is found. Fail-open: any read error -> None.
+    """
+    try:
+        tp = Path(transcript_path)
+        if not tp.exists():
+            return None
+        size = tp.stat().st_size
+        with open(tp, "rb") as f:
+            f.seek(max(0, size - 65536))
+            tail = f.read()
+    except OSError:
+        return None
+
+    candidates: list[str] = []
+    for raw in tail.splitlines():
+        if not raw.strip():
+            continue
+        try:
+            entry = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("type") != "user":
+            continue
+        content = (entry.get("message") or {}).get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = ""
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "")
+                    break
+        else:
+            text = ""
+        if text:
+            candidates.append(text.strip())
+
+    for text in reversed(candidates):  # most recent first
+        cleaned = re.sub(r"\s+", " ", text).strip().strip("\"'`")
+        if not cleaned or cleaned.startswith("/"):
+            continue
+        if len(cleaned) < 12:  # skip "sure", "yes do it", etc.
+            continue
+        lead = cleaned.split()[0].lower().strip(",.!?;:")
+        if lead in _SKIP_PROMPT_LEADS:
+            continue
+        if len(cleaned) > 72:
+            cleaned = cleaned[:71].rstrip() + "…"
+        return cleaned
+    return None
+
+
+def _apply_fallback_chain(
+    msg: str, group_key: str, transcript_path: str | None, hint_type: str = "chore"
+) -> str:
+    """Walk parser -> transcript -> group-key. Preserves merge/analyzer messages.
+
+    A message from the change-analyzer or a merge is kept as-is (it carries real
+    content or explicit merge semantics). Only a generic/empty parser result is
+    replaced, and only ever with a directive or the group-key fallback.
+    """
+    if msg and msg != DEFAULT_COMMIT_MESSAGE and msg != MERGE_COMMIT_MESSAGE and not _is_generic_message(msg):
+        return msg
+    if transcript_path:
+        subj = _transcript_subject(transcript_path)
+        if subj:
+            return f"{hint_type}: {subj}"
+    return f"auto-commit: {group_key} session changes"
+
+
+def _commit_grouped(cwd: Path, groups: dict[str, list[str]], transcript_path: str | None = None) -> bool:
     """Commit each subsystem group as its own scoped commit.
 
     Reuses generate_semantic_commit_message per group: after staging only that
     group's paths, `git diff --staged` is scoped to the group, so the message
-    generator (unchanged) produces a correct single-scope message.
+    generator produces a correct single-scope message. When the parser yields
+    only a file-type template, the fallback chain substitutes the most recent
+    transcript directive, else the group-key message.
     """
     session_id = get_session_id_for_commit()
     committed_any = False
@@ -529,8 +641,7 @@ def _commit_grouped(cwd: Path, groups: dict[str, list[str]]) -> bool:
                 msg = generate_semantic_commit_message(str(cwd))
             except Exception:
                 pass
-        if msg == DEFAULT_COMMIT_MESSAGE:
-            msg = f"auto-commit: {group_key} session changes"
+        msg = _apply_fallback_chain(msg, group_key, transcript_path)
         if session_id != "unknown":
             msg = f"[{session_id}] {msg}"
         ok = False
@@ -613,13 +724,16 @@ def _should_commit_now(cwd: Path) -> bool:
     return False
 
 
-def auto_commit(cwd: Path, do_push: bool = False) -> bool:
+def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = None) -> bool:
     """
     Auto-commit and push uncommitted changes.
 
     Args:
         cwd: Path to the git repo.
         do_push: Whether to push after commit. Default False (Stop hook use case).
+        transcript_path: Optional session transcript JSONL, used by the
+            fallback chain to derive a meaningful subject when the staged-diff
+            parser yields only a file-type template.
 
     Returns:
         True if changes were committed, False otherwise.
@@ -648,7 +762,7 @@ def auto_commit(cwd: Path, do_push: bool = False) -> bool:
         for p in _get_changed_paths(cwd):
             groups.setdefault(_commit_group_key(p), []).append(p)
         if len(groups) > 1:
-            return _commit_grouped(cwd, groups)
+            return _commit_grouped(cwd, groups, transcript_path)
 
     # Stage all changes FIRST - commit message generation needs staged diff
     if HAS_GIT_HELPER:
@@ -676,8 +790,10 @@ def auto_commit(cwd: Path, do_push: bool = False) -> bool:
             # Parser failed - continue to fallback options
             pass
 
-    # Fall back to change analyzer if available
-    if commit_msg == DEFAULT_COMMIT_MESSAGE and HAS_CHANGE_ANALYZER:
+    # Fall back to change analyzer if the parser had nothing specific (default OR
+    # a file-type template — the template is non-empty, which previously masked
+    # this branch and every fallback below it).
+    if (commit_msg == DEFAULT_COMMIT_MESSAGE or _is_generic_message(commit_msg)) and HAS_CHANGE_ANALYZER:
         try:
             analysis = analyze_changes(cwd)
             # During merge: commit with merge message, skip CHANGELOG (via elif)
@@ -702,6 +818,12 @@ def auto_commit(cwd: Path, do_push: bool = False) -> bool:
         except Exception:
             # Analysis failed - fall back to default message
             pass
+
+    # Never ship a file-type template: walk parser -> change-analyzer result ->
+    # transcript directive -> group-key. Ungrouped path uses the single subsystem.
+    _grp_paths = _get_changed_paths(cwd)
+    _group_key = _commit_group_key(_grp_paths[0]) if _grp_paths else "root"
+    commit_msg = _apply_fallback_chain(commit_msg, _group_key, transcript_path)
 
     # Session-linked commit: tag with session ID for traceability
     session_id = get_session_id_for_commit()
@@ -758,7 +880,8 @@ def run(data: dict) -> dict | None:
     Fail-open: a best-effort side-effect hook must never block the session.
     """
     try:
-        auto_commit_all()
+        transcript_path = data.get("transcript_path") if isinstance(data, dict) else None
+        auto_commit_all(transcript_path)
     except Exception:
         pass
     return {"continue": True}
