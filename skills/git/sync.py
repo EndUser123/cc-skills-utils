@@ -906,7 +906,7 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
         # Exclude session artifacts that create false divergence across machines
         add_cmd = ["git", "add", "-A", "--"]
         for pattern in STAGING_EXCLUDE_PATTERNS:
-            add_cmd.extend(["--", f":(exclude){pattern}"])
+            add_cmd.append(f":(exclude){pattern}")
         add_result = run(add_cmd, cwd=worktree, silent=True)
         if add_result.returncode != 0 and "index.lock" in add_result.stderr:
             # Concurrent git process — wait briefly and retry (common during health check parallel workers)
