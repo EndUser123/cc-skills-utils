@@ -683,6 +683,29 @@ def audit_skill_frontmatter(plugins_dir: Path, plugin_filter: Optional[str] = No
                     "fix": f"Set name: {skill_dir.name} to match directory",
                 })
 
+            # Check SKILL.md frontmatter version vs .claude-plugin/plugin.json version
+            fm_version = str(fm.get("version", "") or "").strip()
+            pjson_path = plugin / ".claude-plugin" / "plugin.json"
+            pjson_version = ""
+            pjson_ok, pjson_data = _load_json(pjson_path)
+            if pjson_ok and isinstance(pjson_data, dict):
+                pjson_version = str(pjson_data.get("version", "") or "").strip()
+            if fm_version and pjson_version and fm_version != pjson_version:
+                findings.append({
+                    "type": "version_mismatch",
+                    "plugin": plugin.name,
+                    "skill": skill_dir.name,
+                    "file": str(skill_md.relative_to(plugins_dir)),
+                    "frontmatter_version": fm_version,
+                    "plugin_json_version": pjson_version,
+                    "issue": (
+                        f"SKILL.md frontmatter has version='{fm_version}' but .claude-plugin/plugin.json "
+                        + f"has version='{pjson_version}' — slash command metadata is stale; "
+                        + "bump the SKILL.md frontmatter version to match plugin.json"
+                    ),
+                    "fix": f"Update SKILL.md frontmatter version to '{pjson_version}' to match plugin.json",
+                })
+
             # Check for collision with built-in slash commands
             _BUILTIN_COMMANDS = frozenset({
                 "add-dir", "agents", "autofix-pr", "batch", "bug", "clear", "config",
