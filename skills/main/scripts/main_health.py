@@ -2072,6 +2072,10 @@ def run_all_checks(
     for name, script in core_checks:
         checks.append(run_check(name, script))
 
+    # Dream-cycle findings (fast, always run) - counts outstanding /debrief
+    # findings (reviewed >7d ago, not actioned). Separate row in /main output.
+    checks.append(run_check("dream_cycle", TOOLS_DIR / "check_dream_cycle_findings.py"))
+
     # PERF-001: Parallelize non-core checks with overall timeout budget
     # Core checks (~1s) run first sequentially; all others run in parallel
     pending: list[tuple[str, Callable[[], CheckResult]]] = []
@@ -2147,7 +2151,37 @@ def main():
         action="store_true",
         help="Mark current sizes as baseline - suppresses future warnings until regression",
     )
+    parser.add_argument(
+        "--dream", action="store_true", help="Show outstanding /debrief dream-cycle findings, then exit"
+    )
     args = parser.parse_args()
+
+    # --dream: show per-finding details of outstanding dream-cycle topics, then exit 0.
+    # Bypasses the normal health run (read-only info dump).
+    if args.dream:
+        _dream_lib = (
+            Path("P:/packages/.claude-marketplace/plugins/cc-skills-analysis")
+            / "skills"
+            / "debrief"
+            / "__lib"
+        )
+        if str(_dream_lib) not in sys.path:
+            sys.path.insert(0, str(_dream_lib))
+        import dream_state as _ds
+        outstanding = _ds.list_outstanding_dream_findings(threshold_days=7)
+        if not outstanding:
+            print("Dream cycle: no outstanding findings")
+            return 0
+        print("DREAM CYCLE OUTSTANDING FINDINGS")
+        print("=" * 60)
+        for f in outstanding:
+            print(f"\n• {f['topic']}  (age={f['age_days']}d, last_reviewed={f['last_reviewed']})")
+            if f.get("promotion_target"):
+                print(f"  promotion_target: {f['promotion_target']}")
+            for finding in f["findings"]:
+                print(f"  - {finding}")
+        print(f"\n{len(outstanding)} outstanding finding(s). Run /debrief to act on them.")
+        return 0
 
     # Upgrade mode - skip checks, just do upgrade
     if args.upgrade or args.upgrade_all:
@@ -2318,6 +2352,25 @@ def main():
             if check.suggestions and check.status != "healthy":
                 for suggestion in check.suggestions[:3]:
                     print(f"   💡 Run {suggestion}")
+
+        # Dream-cycle summary line (only when there are outstanding findings)
+        dream_check = next((c for c in checks if c.name == "dream_cycle"), None)
+        if dream_check and dream_check.status != "healthy":
+            _dream_lib2 = (
+                Path("P:/packages/.claude-marketplace/plugins/cc-skills-analysis")
+                / "skills"
+                / "debrief"
+                / "__lib"
+            )
+            if str(_dream_lib2) not in sys.path:
+                sys.path.insert(0, str(_dream_lib2))
+            try:
+                import dream_state as _ds2
+                dream_n = len(_ds2.list_outstanding_dream_findings(threshold_days=7))
+            except Exception:
+                dream_n = 0
+            if dream_n > 0:
+                print(f"\nDream cycle findings outstanding: {dream_n} (run /main --dream for details)")
 
         if fixed:
             print("\n🔧 FIXES APPLIED:")
