@@ -556,6 +556,15 @@ def get_push_target(repo_path: Path) -> Tuple[Optional[str], Optional[str], str]
     url_result = run(["git", "remote", "get-url", remote], cwd=repo_path, silent=True)
     remote_url = url_result.stdout.strip() if url_result.returncode == 0 else "unknown"
 
+    # ponytail: read-only sentinel. A repo whose push-URL is "no_push" is a clone
+    # we don't own (third-party plugin / vendored dep) and must never be pushed.
+    # Set via `git remote set-url --push origin no_push`; push_repo fails instantly
+    # and locally, so the caller surfaces skip(read-only) instead of a 403.
+    pushurl_result = run(["git", "config", "--get", f"remote.{remote}.pushurl"],
+                         cwd=repo_path, silent=True)
+    if pushurl_result.returncode == 0 and pushurl_result.stdout.strip() == "no_push":
+        return None, None, f"skip (read-only: {remote_url})"
+
     return remote, branch, remote_url
 
 def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
