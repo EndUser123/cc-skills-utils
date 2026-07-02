@@ -268,7 +268,7 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
     # settings: size bloat
     ("settings", "bloat"): [
         {
-            "skill": "/config-audit",
+            "skill": "/claude-audit",
             "rationale": "Audits settings.json for bloat, redundancy, and token waste",
             "category": "quality",
         },
@@ -276,7 +276,7 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
     # settings: orphaned env vars
     ("settings", "orphaned"): [
         {
-            "skill": "/config-audit",
+            "skill": "/claude-audit",
             "rationale": "Audits settings.json for unused env vars and orphaned hook entries",
             "category": "quality",
         },
@@ -313,7 +313,7 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
             "category": "correctness",
         },
         {
-            "skill": "/config-audit",
+            "skill": "/claude-audit",
             "rationale": "Reviews existing .env for over-engineering and redundancy once recovered",
             "category": "quality",
         },
@@ -325,7 +325,7 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
             "category": "correctness",
         },
         {
-            "skill": "/config-audit",
+            "skill": "/claude-audit",
             "rationale": "Reviews existing .env for over-engineering and redundancy once recovered",
             "category": "quality",
         },
