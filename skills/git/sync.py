@@ -976,14 +976,18 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
         commit_result = run(["git", "commit", "-m", commit_msg], cwd=worktree, silent=True)
 
         if commit_result.returncode != 0:
-            err = commit_result.stderr or ""
-            if "nothing to commit" in err.lower():
+            # git writes "nothing to commit" / "no changes added to commit" to STDOUT
+            # (exit 1, stderr empty), so check both streams or every benign empty
+            # commit gets misreported as "Commit failed (unknown error)".
+            err = (commit_result.stderr or "") + (commit_result.stdout or "")
+            err_l = err.lower()
+            if "nothing to commit" in err_l or "no changes added to commit" in err_l:
                 break
-            if "index.lock" in commit_result.stderr:
+            if "index.lock" in err_l:
                 # Concurrent git process — wait and retry
                 time.sleep(0.5)
                 continue
-            print(f"  X Commit failed ({commit_result.stderr.strip()[:100] if commit_result.stderr else 'unknown error'}), leaving dirty state for manual resolution")
+            print(f"  X Commit failed ({err.strip()[:100] or 'unknown error'}), leaving dirty state for manual resolution")
             break
 
         did_commit = True
