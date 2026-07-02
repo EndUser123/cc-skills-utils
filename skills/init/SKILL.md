@@ -5,6 +5,7 @@ version: "1.0.0"
 status: "stable"
 enforcement: advisory
 category: initialization
+workflow_steps: [locate, check, create, report, rule-shape-check]
 description: Initialize CLAUDE.md at module/feature root
 triggers:
   - '/init'
@@ -49,6 +50,7 @@ Initialize CLAUDE.md at module/feature root for guidance.
 2. **Check if CLAUDE.md already exists** at target
 3. **Create CLAUDE.md** with appropriate template
 4. **Report location created**
+5. **Rule-shape check** — review each entry against the Rule Placement table below; if any rule is path-scoped or activity-bound, tell the user the better mechanism (`.claude/rules/` or a skill) instead of leaving it stranded in CLAUDE.md
 
 ---
 
@@ -119,6 +121,16 @@ mypy src/
 ## Notes
 
 [Any important notes for Claude Code]
+
+## Rule Placement
+
+Claude Code loads this file on every session in this subtree. Not every rule belongs here — pick the mechanism that matches the rule's trigger:
+
+| Rule triggers on... | Put it in... | Why |
+|---|---|---|
+| A specific file path or extension (e.g. `*.py`, `src/api/**`) | `.claude/rules/<name>.md` with `paths:` frontmatter | Loaded only when those files are touched — no cost otherwise |
+| An activity or procedure (e.g. "when releasing", "on PR") | a Skill | Invoked on demand, not always loaded |
+| Everything in this subtree, always | this `CLAUDE.md` | Always-loaded context — keep it <200 lines |
 ```
 
 ---
