@@ -906,6 +906,30 @@ def ensure_diff3_config() -> None:
 # SYNC FUNCTIONS
 # ============================================================
 
+def _filter_stageable_excludes(worktree) -> list:
+    """Drop STAGING_EXCLUDE_PATTERNS whose base path is already gitignored in this repo.
+
+    `git add -A` already skips gitignored files, so an `:(exclude)` pathspec
+    naming an ignored dir is redundant — and worse, git exits 1 ("paths are
+    ignored by your .gitignore files") when a pathspec names an ignored path,
+    which surfaced as repeated `git add failed` in sync. Keep only the patterns
+    that aren't already ignored here so they still do their defense-in-depth job
+    (e.g. .in_use/, core/backends/*/sessions/) for repos that don't gitignore them.
+    """
+    kept = []
+    for pattern in STAGING_EXCLUDE_PATTERNS:
+        base = pattern.split("**", 1)[0].rstrip("/*")
+        if not base:
+            kept.append(pattern)
+            continue
+        r = run(["git", "check-ignore", "--quiet", base], cwd=worktree, silent=True)
+        # check-ignore exits 0 if ignored, 1 if not, 128 on error → treat 128 as keep.
+        if r.returncode == 0:
+            continue
+        kept.append(pattern)
+    return kept
+
+
 def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]:
     """
     Sync a single repo: commit if needed, optionally push.
@@ -930,7 +954,7 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
         # Stage first, then check — this captures files modified between checks
         # Exclude session artifacts that create false divergence across machines
         add_cmd = ["git", "add", "-A", "--"]
-        for pattern in STAGING_EXCLUDE_PATTERNS:
+        for pattern in _filter_stageable_excludes(worktree):
             add_cmd.append(f":(exclude){pattern}")
         add_result = run(add_cmd, cwd=worktree, silent=True)
         if add_result.returncode != 0 and "index.lock" in add_result.stderr:
