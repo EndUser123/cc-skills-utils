@@ -535,6 +535,15 @@ def generate_commit_message_for_repo(repo: RepoInfo) -> str:
 # PUSH FUNCTIONS
 # ============================================================
 
+# Vendored-clone directories — read-only by convention, never pushed. A clone
+# under one of these (e.g. a third-party plugin / browser-harness dep checked
+# straight into the tree) is not ours to push; skipping it here avoids the 403
+# loop and a wasted network round-trip. Own a repo that lives under one? Move
+# it out of the vendored directory, or guard it explicitly with the no_push
+# sentinel on its own remote. Complements the per-repo no_push pushurl check
+# in get_push_target — that one is opt-in per repo; this one is opt-out per dir.
+READ_ONLY_DIR_PATTERNS = (".github_repos/",)
+
 def get_push_target(repo_path: Path) -> Tuple[Optional[str], Optional[str], str]:
     """
     Get the remote and branch to push to.
@@ -572,6 +581,13 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
     Push a repo to its remote.
     Returns: (success, message)
     """
+    # Directory-level read-only guard (see READ_ONLY_DIR_PATTERNS). Skips before
+    # get_push_target so a vendored clone never reaches the network. The no_push
+    # pushurl sentinel handles read-only repos living OUTSIDE these dirs.
+    rel = repo.relative_path.replace("\\", "/")
+    if any(p in rel + "/" for p in READ_ONLY_DIR_PATTERNS):
+        return False, f"skip (read-only dir: {rel})"
+
     remote, branch, remote_url = get_push_target(repo.path)
 
     if not remote or not branch:
