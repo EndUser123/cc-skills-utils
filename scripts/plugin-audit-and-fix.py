@@ -22,8 +22,19 @@ import json
 import os
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Generator, Optional
+try:
+    import msvcrt  # Windows file locking
+    _MSVCRT_AVAILABLE = True
+except ImportError:
+    _MSVCRT_AVAILABLE = False
+try:
+    import fcntl  # Unix file locking
+    _FCNTL_AVAILABLE = True
+except ImportError:
+    _FCNTL_AVAILABLE = False
 try:
     from rich.console import Console
     from rich.table import Table
@@ -114,6 +125,61 @@ def _save_json(path: Path, obj: dict) -> bool:
         return True
     except OSError:
         return False
+
+
+# ponytail: global bump lock — shared files (both marketplace.json + installed_plugins.json)
+# are global, so two terminals bumping *different* plugins still race. Per-plugin locks would
+# be wrong; one global lock is correct and smaller. Upgrade to per-file locks only if bump
+# throughput ever matters (it doesn't — bumps are rare manual events).
+_BUMP_LOCK_FILE = Path("P:/.claude/state/bump.lock")
+_BUMP_LOCK_TIMEOUT = 60  # seconds; bumps are fast, 60s means another process is stuck
+
+
+@contextmanager
+def _bump_lock(timeout: int = _BUMP_LOCK_TIMEOUT):
+    """Cross-platform exclusive lock around the bump critical section.
+
+    Yields True if the lock was acquired, False if locking is unavailable on this
+    platform (fail-open) or could not be acquired within timeout (caller should abort).
+    Pattern reused from cleanup.py:acquire_cleanup_lock.
+    """
+    import time
+    _BUMP_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = None
+    acquired = False
+    start = time.time()
+    try:
+        lock_file = open(_BUMP_LOCK_FILE, "w")
+        while time.time() - start < timeout:
+            if sys.platform == "win32" and _MSVCRT_AVAILABLE:
+                try:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    acquired = True
+                    break
+                except OSError:
+                    time.sleep(0.2)
+            elif _FCNTL_AVAILABLE:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except OSError:
+                    time.sleep(0.2)
+            else:
+                acquired = True  # no locking primitive — fail open
+                break
+        yield acquired
+    finally:
+        if lock_file and acquired:
+            try:
+                if sys.platform == "win32" and _MSVCRT_AVAILABLE:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                elif _FCNTL_AVAILABLE:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            finally:
+                lock_file.close()
 
 
 def _extract_command_script_tokens(command: str) -> list[str]:
@@ -859,7 +925,10 @@ def _version_key(v: Path) -> tuple:
         return (0, 0, 0)
 
 
-_BIDIR_SKIP_DIRS = {".git", ".claude", "__pycache__", ".pytest_cache", ".mypy_cache", ".venv", "node_modules"}
+_BIDIR_SKIP_DIRS = {".git", ".claude", "__pycache__", ".pytest_cache", ".mypy_cache", ".venv", "node_modules",
+                    # Runtime/per-terminal artifacts — must not pollute shared drift/sync state.
+                    # .in_use = CC per-load PID markers; .aid = AI-distiller build output.
+                    ".in_use", ".aid"}
 _BIDIR_SKIP_EXTS = {".pyc", ".pyo"}
 
 
@@ -1124,27 +1193,42 @@ def audit_source_cache_drift(plugins_dir: Path) -> list[dict]:
                 "issue": f"'{plugin.name}' has {len(stale_versions)} stale version dir(s): {[d.name for d in stale_versions]}",
             })
 
-        # Check drift against the LATEST (current) version directory only
+        # Check drift against the LATEST (current) version directory only.
+        # Walk the full pruned tree (same helper bidir_sync uses) so drift
+        # detection sees every file type that gets cached — not just .py/.json/SKILL.md.
+        # The old glob allowlist silently missed .md references, .js routers, .sh, .toml, etc.
         drift_files: list[str] = []
         cache_only_files: list[str] = []
-        key_patterns = ["**/*.py", "**/*.json", "**/SKILL.md"]
         src_files_set: set[str] = set()
         cache_files_set: set[str] = set()
 
-        for pattern in key_patterns:
-            for src_file in source_dir.glob(pattern):
-                if ".git" in src_file.parts or "__pycache__" in str(src_file):
-                    continue
+        for src_file in _pruned_walk(source_dir):
+            if src_file.suffix in _BIDIR_SKIP_EXTS:
+                continue
+            try:
                 rel = src_file.relative_to(source_dir)
-                src_files_set.add(str(rel))
-                cache_file = current_version_dir / rel
-                if cache_file.exists():
-                    cache_files_set.add(str(rel))
-                    try:
-                        if src_file.read_text(encoding="utf-8", errors="ignore") != cache_file.read_text(encoding="utf-8", errors="ignore"):
-                            drift_files.append(str(rel))
-                    except OSError:
-                        pass
+            except ValueError:
+                continue
+            src_files_set.add(str(rel))
+            cache_file = current_version_dir / rel
+            if cache_file.exists():
+                cache_files_set.add(str(rel))
+                try:
+                    if src_file.read_bytes() != cache_file.read_bytes():
+                        drift_files.append(str(rel))
+                except OSError:
+                    pass
+
+        # Walk the cache tree independently so cache-only files (deleted from
+        # source but lingering in cache = stale data) are actually detected.
+        for cache_file in _pruned_walk(current_version_dir):
+            if cache_file.suffix in _BIDIR_SKIP_EXTS:
+                continue
+            try:
+                rel = cache_file.relative_to(current_version_dir)
+            except ValueError:
+                continue
+            cache_files_set.add(str(rel))
 
         if drift_files:
             findings.append({
@@ -2397,95 +2481,99 @@ def main(argv: list[str]) -> int:
             print(f"{C_GREEN}No name conflicts found.{C_RESET}")
         return 0
     if args.bump:
-        bump_result = bump_version(plugins_dir, mp_root, args.bump)
-        if bump_result["errors"]:
-            for e in bump_result["errors"]:
-                print(f"  {C_RED}ERROR: {e}{C_RESET}")
-            return 1
-        for a in bump_result["actions"]:
-            print(f"  {C_GREEN}{a}{C_RESET}")
+        with _bump_lock() as locked:
+            if not locked:
+                print(f"  {C_RED}ERROR: could not acquire bump lock within {_BUMP_LOCK_TIMEOUT}s — another terminal is bumping. Retry.{C_RESET}")
+                return 1
+            bump_result = bump_version(plugins_dir, mp_root, args.bump)
+            if bump_result["errors"]:
+                for e in bump_result["errors"]:
+                    print(f"  {C_RED}ERROR: {e}{C_RESET}")
+                return 1
+            for a in bump_result["actions"]:
+                print(f"  {C_GREEN}{a}{C_RESET}")
 
-        # Post-bump: create new cache dir, remove old version dir
-        import shutil
-        import subprocess
-        from datetime import datetime, timezone
-        pkg_name = args.bump
-        cache_root = _cache_dir_for_plugin(pkg_name)
-        old_ver = bump_result["old_version"]
-        new_ver = bump_result["new_version"]
-        cache_dir = cache_root / pkg_name
-        plugin_key = f"{pkg_name}@{_resolve_plugin_marketplace(pkg_name)}"
+            # Post-bump: create new cache dir, remove old version dir
+            import shutil
+            import subprocess
+            from datetime import datetime, timezone
+            pkg_name = args.bump
+            cache_root = _cache_dir_for_plugin(pkg_name)
+            old_ver = bump_result["old_version"]
+            new_ver = bump_result["new_version"]
+            cache_dir = cache_root / pkg_name
+            plugin_key = f"{pkg_name}@{_resolve_plugin_marketplace(pkg_name)}"
 
-        # 1. Update installed_plugins.json so Claude Code knows about new version
-        installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
-        if installed_path.exists():
-            ok, installed_data = _load_json(installed_path)
-            if ok and installed_data is not None and "plugins" in installed_data:
-                if plugin_key in installed_data["plugins"]:
-                    installed_data["plugins"][plugin_key][0]["version"] = new_ver
-                    installed_data["plugins"][plugin_key][0]["installPath"] = str(cache_dir / new_ver)
-                    installed_data["plugins"][plugin_key][0]["lastUpdated"] = datetime.now(
-                        timezone.utc
-                    ).isoformat().replace("+00:00", "Z").replace("Z", "+00:00")
-                    _save_json(installed_path, installed_data)
-                    print(f"  {C_GREEN}Updated installed_plugins.json: {pkg_name}@{old_ver} → {new_ver} at {cache_dir / new_ver}{C_RESET}")
+            # 1. Update installed_plugins.json so Claude Code knows about new version
+            installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
+            if installed_path.exists():
+                ok, installed_data = _load_json(installed_path)
+                if ok and installed_data is not None and "plugins" in installed_data:
+                    if plugin_key in installed_data["plugins"]:
+                        installed_data["plugins"][plugin_key][0]["version"] = new_ver
+                        installed_data["plugins"][plugin_key][0]["installPath"] = str(cache_dir / new_ver)
+                        installed_data["plugins"][plugin_key][0]["lastUpdated"] = datetime.now(
+                            timezone.utc
+                        ).isoformat().replace("+00:00", "Z").replace("Z", "+00:00")
+                        _save_json(installed_path, installed_data)
+                        print(f"  {C_GREEN}Updated installed_plugins.json: {pkg_name}@{old_ver} → {new_ver} at {cache_dir / new_ver}{C_RESET}")
 
-        if not cache_dir.exists():
-            # Plugin registered in installed_plugins.json but no cache dir — create it
-            cache_dir.mkdir(parents=True, exist_ok=True)
+            if not cache_dir.exists():
+                # Plugin registered in installed_plugins.json but no cache dir — create it
+                cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create new version dir by syncing from source
-        src = plugins_dir / pkg_name
-        new_cache = cache_dir / new_ver
-        if src.exists():
-            new_cache.mkdir(parents=True, exist_ok=True)
-            sync_stats = bidir_sync(src, new_cache)
-            if sync_stats["errors"]:
-                for err in sync_stats["errors"]:
-                    print(f"  {C_YELLOW}Cache sync error: {err}{C_RESET}")
-            print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
+            # Create new version dir by syncing from source
+            src = plugins_dir / pkg_name
+            new_cache = cache_dir / new_ver
+            if src.exists():
+                new_cache.mkdir(parents=True, exist_ok=True)
+                sync_stats = bidir_sync(src, new_cache)
+                if sync_stats["errors"]:
+                    for err in sync_stats["errors"]:
+                        print(f"  {C_YELLOW}Cache sync error: {err}{C_RESET}")
+                print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
 
-        # Remove ALL stale version dirs — runtime only loads the version in
-        # installed_plugins.json, so every other version dir is debt. Only
-        # ever keeping the new version prevents the accumulation the audit
-        # flags as "stale version dirs".
-        removed_versions = []
-        if cache_dir.exists():
-            for vdir in cache_dir.iterdir():
-                if vdir.is_dir() and vdir.name != new_ver:
-                    _rmtree_force(vdir)
-                    removed_versions.append(vdir.name)
-        if removed_versions:
-            print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{', '.join(sorted(removed_versions))}{C_RESET}")
+            # Remove ALL stale version dirs — runtime only loads the version in
+            # installed_plugins.json, so every other version dir is debt. Only
+            # ever keeping the new version prevents the accumulation the audit
+            # flags as "stale version dirs".
+            removed_versions = []
+            if cache_dir.exists():
+                for vdir in cache_dir.iterdir():
+                    if vdir.is_dir() and vdir.name != new_ver:
+                        _rmtree_force(vdir)
+                        removed_versions.append(vdir.name)
+            if removed_versions:
+                print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{', '.join(sorted(removed_versions))}{C_RESET}")
 
-        # Post-bump: update marketplace index and verify zero drift
-        print(f"\n{C_CYAN}=== Marketplace Sync ==={C_RESET}")
-        mp_update = subprocess.run(
-            ["claude", "plugin", "marketplace", "update", "local"],
-            capture_output=True, text=True, timeout=30,
-        )
-        if mp_update.returncode == 0:
-            print(f"  {C_GREEN}Marketplace updated.{C_RESET}")
-        else:
-            print(f"  {C_YELLOW}Marketplace update failed: {mp_update.stderr.strip() or mp_update.stdout.strip()}{C_RESET}")
+            # Post-bump: update marketplace index and verify zero drift
+            print(f"\n{C_CYAN}=== Marketplace Sync ==={C_RESET}")
+            mp_update = subprocess.run(
+                ["claude", "plugin", "marketplace", "update", "local"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if mp_update.returncode == 0:
+                print(f"  {C_GREEN}Marketplace updated.{C_RESET}")
+            else:
+                print(f"  {C_YELLOW}Marketplace update failed: {mp_update.stderr.strip() or mp_update.stdout.strip()}{C_RESET}")
 
-        # Verify zero drift for the bumped plugin
-        drift = audit_source_cache_drift(plugins_dir.parent if plugins_dir.name == "plugins" else plugins_dir)
-        drift = [f for f in drift if f["plugin"] == pkg_name and f["type"] == "source_modified"]
-        if drift:
-            print(f"  {C_YELLOW}Drift detected after bump — re-syncing...{C_RESET}")
-            for f in drift:
-                version_dir = cache_root / pkg_name / f["cache_version"]
-                src_path = plugins_dir / pkg_name
-                if src_path.exists() and version_dir.exists():
-                    bidir_sync(src_path, version_dir)
-                    print(f"  {C_GREEN}Re-synced {pkg_name}.{C_RESET}")
-        else:
-            print(f"  {C_GREEN}Zero drift confirmed for {pkg_name}.{C_RESET}")
+            # Verify zero drift for the bumped plugin
+            drift = audit_source_cache_drift(plugins_dir.parent if plugins_dir.name == "plugins" else plugins_dir)
+            drift = [f for f in drift if f["plugin"] == pkg_name and f["type"] == "source_modified"]
+            if drift:
+                print(f"  {C_YELLOW}Drift detected after bump — re-syncing...{C_RESET}")
+                for f in drift:
+                    version_dir = cache_root / pkg_name / f["cache_version"]
+                    src_path = plugins_dir / pkg_name
+                    if src_path.exists() and version_dir.exists():
+                        bidir_sync(src_path, version_dir)
+                        print(f"  {C_GREEN}Re-synced {pkg_name}.{C_RESET}")
+            else:
+                print(f"  {C_GREEN}Zero drift confirmed for {pkg_name}.{C_RESET}")
 
-        print(f"\n{C_CYAN}=== Done ==={C_RESET}")
-        print(f"  Run {C_CYAN}/reload-plugins{C_RESET} to activate {pkg_name} {new_ver}.")
-        return 0
+            print(f"\n{C_CYAN}=== Done ==={C_RESET}")
+            print(f"  Run {C_CYAN}/reload-plugins{C_RESET} to activate {pkg_name} {new_ver}.")
+            return 0
     if args.validate:
         print("Validating plugins...")
         failed = 0
