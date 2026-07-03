@@ -863,6 +863,27 @@ _BIDIR_SKIP_DIRS = {".git", ".claude", "__pycache__", ".pytest_cache", ".mypy_ca
 _BIDIR_SKIP_EXTS = {".pyc", ".pyo"}
 
 
+def _rmtree_force(path: str | Path) -> None:
+    """rmtree that clears the read-only attribute on failure.
+
+    Claude Code's own plugin installer copies nested .git dirs into the
+    version-keyed cache; git objects are read-only on Windows, so a plain
+    shutil.rmtree dies with WinError 5 on every stale-cache cleanup
+    (observed 2026-07-02, cc-skills-sdlc/skills/go/.git).
+    """
+    import shutil as _sh
+    import stat as _stat
+
+    def _onerr(func, p, exc):
+        os.chmod(p, _stat.S_IWRITE)
+        func(p)
+
+    if sys.version_info >= (3, 12):
+        _sh.rmtree(str(path), onexc=_onerr)
+    else:
+        _sh.rmtree(str(path), onerror=lambda f, p, e: _onerr(f, p, e))
+
+
 def _pruned_walk(root: Path, skip_dirs: set[str] | None = None,
                  suffixes: set[str] | None = None) -> Generator[Path, None, None]:
     """os.walk with directory pruning — avoids descending into skip_dirs.
@@ -2306,7 +2327,7 @@ def main(argv: list[str]) -> int:
                     for stale_ver in f["stale_versions"]:
                         stale_path = cache_root / pkg / stale_ver
                         if stale_path.exists():
-                            shutil.rmtree(str(stale_path))
+                            _rmtree_force(stale_path)
                             stale_deleted.append(f"{pkg}/{stale_ver}")
                             print(f"  {C_RED}Deleted stale: {pkg}/{stale_ver}{C_RESET}")
                 elif t == "source_modified":
@@ -2432,7 +2453,7 @@ def main(argv: list[str]) -> int:
         if cache_dir.exists():
             for vdir in cache_dir.iterdir():
                 if vdir.is_dir() and vdir.name != new_ver:
-                    shutil.rmtree(str(vdir))
+                    _rmtree_force(vdir)
                     removed_versions.append(vdir.name)
         if removed_versions:
             print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{', '.join(sorted(removed_versions))}{C_RESET}")
@@ -2524,7 +2545,7 @@ def main(argv: list[str]) -> int:
             for stale_ver in f["stale_versions"]:
                 stale_path = cache_root / pkg / stale_ver
                 if stale_path.exists():
-                    shutil.rmtree(str(stale_path))
+                    _rmtree_force(stale_path)
                     deleted.append(f"{pkg}/{stale_ver}")
         if deleted:
             print(f"\n{C_GREEN}Removed {len(deleted)} stale version dir(s): {deleted}{C_RESET}")
@@ -2748,7 +2769,7 @@ def main(argv: list[str]) -> int:
                 for stale_ver in f["stale_versions"]:
                     stale_path = cache_root / pkg / stale_ver
                     if stale_path.exists():
-                        shutil.rmtree(str(stale_path))
+                        _rmtree_force(stale_path)
                         stale_deleted.append(f"{pkg}/{stale_ver}")
                         print(f"  {C_RED}Deleted stale: {pkg}/{stale_ver}{C_RESET}")
             elif t == "source_modified":
