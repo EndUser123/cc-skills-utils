@@ -142,7 +142,7 @@ Code session ends. Prevents work loss from forgetting to commit.
 Features:
 - Multi-repo support: Commits to main P repo and package repos independently
 - Checks for uncommitted changes (git status --porcelain)
-- Runs git add -A, commit with auto message, and push
+- Runs git add --ignore-removal . (deletions never auto-staged), commit, and push
 - Exits silently if no changes or not in a git repo
 - Handles push failures gracefully (local commit still happens)
 - Package repos committed before main repo (hooks finalized last)
@@ -398,7 +398,7 @@ def _submodule_candidates(root: Path) -> list[Path]:
 def find_repos_with_changes(root: Path) -> list[Path]:
     """Find all git repos under root with uncommitted changes.
 
-    Submodules commit BEFORE the main repo so the main repo's ``git add -A``
+    Submodules commit BEFORE the main repo so the main repo's staging pass
     stages the advanced submodule pointers in the same pass. Each submodule
     gets its own debounce window (keyed by resolved path in _should_commit_now).
     """
@@ -429,7 +429,7 @@ def find_repos_with_changes(root: Path) -> list[Path]:
                 if package_dir.is_dir() and (package_dir / ".git").exists():
                     _add_dirty(package_dir)
 
-    # Main repo LAST so submodule pointers get staged by its add -A.
+    # Main repo LAST so submodule pointers get staged by its staging pass.
     if has_uncommitted_changes(root):
         repos.append(root)
     return repos
@@ -467,12 +467,23 @@ def _is_in_merge(cwd: Path) -> bool:
 
 
 def _get_changed_paths(cwd: Path) -> list[str]:
-    """All changed paths (staged + unstaged + untracked), repo-root relative."""
+    """Changed paths (staged + unstaged + untracked), repo-root relative.
+
+    Deletions are EXCLUDED. Auto-commit must never commit file removals: with
+    multiple concurrent sessions sharing one working tree, a blanket stage
+    sweeps deletions made by *other* sessions into this session's commit
+    (2026-07-03 incident: 124 files under tests/_quarantine/ deleted by one
+    session were committed by another session's Stop auto-commit). Deliberate
+    deletions require a manual commit (e.g. /git).
+    """
     # -uall expands untracked directories so each file maps to its own group.
     result = run_git_command(["status", "--porcelain", "--untracked-files=all"], cwd)
     paths: list[str] = []
     for line in result.stdout.splitlines():
         if len(line) < 4:
+            continue
+        # Porcelain XY status: skip entries deleted in index or worktree.
+        if "D" in line[:2]:
             continue
         raw = line[3:].strip()
         if " -> " in raw:  # rename: take destination
@@ -773,19 +784,16 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
         if len(groups) > 1:
             return _commit_grouped(cwd, groups, transcript_path)
 
-    # Stage all changes FIRST - commit message generation needs staged diff
-    if HAS_GIT_HELPER:
-        try:
-            git = GitHelper(cwd)
-            git.add(["-A"])
-        except Exception:
-            # Fall back to subprocess
-            run_git_command(["add", "-A"], cwd)
-    else:
-        run_git_command(["add", "-A"], cwd)
+    # Stage all changes FIRST - commit message generation needs staged diff.
+    # --ignore-removal: stage new + modified files but NEVER deletions. With
+    # concurrent sessions sharing one working tree, `add -A` swept other
+    # sessions' deletions into this session's commit (2026-07-03 incident:
+    # 124 quarantined test files). Deliberate deletions go through /git.
+    run_git_command(["add", "--ignore-removal", "."], cwd)
 
-    # Re-check for changes after staging (git add may have been no-op if clean)
-    if not has_uncommitted_changes(cwd):
+    # Re-check STAGED changes (worktree may be dirty with only deletions,
+    # which we deliberately did not stage — committing then would fail).
+    if run_git_command(["diff", "--cached", "--quiet"], cwd).returncode == 0:
         return False
 
     # Analyze changes for meaningful commit message
