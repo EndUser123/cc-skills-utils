@@ -969,6 +969,32 @@ def _pruned_walk(root: Path, skip_dirs: set[str] | None = None,
             yield fpath
 
 
+def _git_ignored_relpaths(source_dir: Path) -> set[str]:
+    """POSIX relative paths under source_dir that git ignores.
+
+    Resolves the repo from within source_dir so submodule plugins (which have
+    their own .gitignore) are handled correctly — a parent-repo query would
+    exit 128 on submodule paths. Fail-open: any error → empty set (the static
+    _BIDIR_SKIP_DIRS/_BIDIR_SKIP_EXTS floor still applies).
+
+    Why git instead of a gitignore parser: git is the source of truth for
+    ignore semantics (negation, nested .gitignore, submodule boundaries).
+    Reimplementing that is the YAGNI failure this retires.
+    """
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(source_dir), "ls-files", "--others",
+             "--ignored", "--exclude-standard", "-z"],
+            capture_output=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if out.returncode != 0:
+        return set()
+    return {Path(os.fsdecode(p)).as_posix() for p in out.stdout.split(b"\0") if p}
+
+
 def _file_quality_score(fpath: Path) -> tuple[int, list[str]]:
     """Score a file's quality based on static analysis.
 
@@ -1202,12 +1228,21 @@ def audit_source_cache_drift(plugins_dir: Path) -> list[dict]:
         src_files_set: set[str] = set()
         cache_files_set: set[str] = set()
 
+        # Gitignored paths are generated artifacts (.coverage, .pytest_cache/*,
+        # build output), not source — exclude them from drift entirely so the
+        # skip-list doesn't grow per-tool. Applies to both sides: a gitignored
+        # rel path is not "source_modified" and a stale one in cache is not
+        # "cache_only". Computed once per plugin from the plugin's own repo.
+        ignored = _git_ignored_relpaths(source_dir)
+
         for src_file in _pruned_walk(source_dir):
             if src_file.suffix in _BIDIR_SKIP_EXTS:
                 continue
             try:
                 rel = src_file.relative_to(source_dir)
             except ValueError:
+                continue
+            if rel.as_posix() in ignored:
                 continue
             src_files_set.add(str(rel))
             cache_file = current_version_dir / rel
@@ -1227,6 +1262,8 @@ def audit_source_cache_drift(plugins_dir: Path) -> list[dict]:
             try:
                 rel = cache_file.relative_to(current_version_dir)
             except ValueError:
+                continue
+            if rel.as_posix() in ignored:
                 continue
             cache_files_set.add(str(rel))
 
