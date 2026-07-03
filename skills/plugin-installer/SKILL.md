@@ -29,7 +29,7 @@ When invoked without an action, run the complete check-fix-verify workflow.
 
 1. **Audit all marketplace plugins** — scans `P:/packages/.claude-marketplace/plugins/` for all directories with `.claude-plugin/plugin.json`, detects unregistered packages, and checks drift:
    ```bash
-   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize
+   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages/.claude-marketplace/plugins" --auto-fix --summarize
    ```
    The `--summarize` flag pipes results through `summarize_audit.py` automatically, emitting a per-plugin prioritized action list with copy-paste fix commands. Without `--summarize`, the audit outputs raw structured findings only.
 
@@ -56,7 +56,7 @@ The audit script uses **quality-aware conflict resolution** when both sides have
 
 3. **Verify cache is clean**:
    ```bash
-   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --drift
+   python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages/.claude-marketplace/plugins" --drift
    ```
 
    If drift detected, **auto-bump** each drifted plugin to propagate source changes to cache:
@@ -101,12 +101,12 @@ The audit script uses **quality-aware conflict resolution** when both sides have
 
 With no argument, audits all marketplace plugins:
 ```bash
-python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages/.claude-marketplace/plugins" --auto-fix --summarize
 ```
 
 With a plugin name, audits only that plugin:
 ```bash
-python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages" --auto-fix --summarize --plugins <name>
+python3 "P:/packages/.claude-marketplace/plugins/cc-skills-utils/scripts/plugin-audit-and-fix.py" --packages-root "P:/packages/.claude-marketplace/plugins" --auto-fix --summarize --plugins <name>
 ```
 
 Then refresh:
