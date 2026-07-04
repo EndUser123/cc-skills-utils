@@ -982,7 +982,7 @@ def run_cleanup_check() -> dict | None:
 
     Returns None if cleanup.py is not available or errors.
     """
-    cleanup_script = SKILLS_DIR / "cleanup" / "scripts" / "cleanup.py"
+    cleanup_script = TOOLS_DIR / "cleanup.py"
 
     if not cleanup_script.exists():
         return None
@@ -1707,7 +1707,7 @@ def run_env_changes_check() -> CheckResult:
     import hashlib
 
     start = time.time()
-    settings_path = CLAUDE_DIR / "settings.json"
+    settings_path = Path("P:/.claude/settings.json")
 
     if not settings_path.exists():
         return CheckResult(
@@ -2058,7 +2058,7 @@ def run_all_checks(
 
     # Slow checks (skip in quick mode)
     slow_checks = [
-        ("cks", CLAUDE_DIR / "skills" / "cks" / "scripts" / "cks_health_check.py"),
+        ("cks", CLAUDE_DIR.parent / "cc-skills-lab" / "skills" / "cks" / "scripts" / "cks_health_check.py"),
         ("skills", TOOLS_DIR / "skill_collision_check.py"),
         (
             "skill_quality",
@@ -2203,7 +2203,7 @@ def main():
         return 0
 
     # Cleanup mode - run cleanup.py --dry-run directly, skip all other checks
-    cleanup_script = SKILLS_DIR / "cleanup" / "scripts" / "cleanup.py"
+    cleanup_script = TOOLS_DIR / "cleanup.py"
     if cleanup_script.exists():
         result = subprocess.run(
             [sys.executable, str(cleanup_script), "--dry-run"],
