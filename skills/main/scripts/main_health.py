@@ -1145,6 +1145,7 @@ def run_regen_cap_check() -> CheckResult:
         proc = subprocess.run(
             [_sys.executable, str(script), "--json"],
             capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if _sys.platform == "win32" else 0,
         )
         data = json.loads(proc.stdout or "{}")
     except Exception as exc:
