@@ -17,7 +17,11 @@ import sys
 from pathlib import Path
 
 ENV_FILE_PATH = Path("P:/.env")
-REQUIRED_ENV_KEYS: tuple[str, ...] = (
+# Keys required only by OPTIONAL features: mm-quota console scrape, CCR proxy
+# routing, cc-bifrost. The core system runs without them. Absent is normal
+# when those features aren't in use — surface as a non-blocking note, not a
+# failure (previously these pinned /main to 0% via a false CRITICAL).
+OPTIONAL_FEATURE_KEYS: tuple[str, ...] = (
     "MINIMAX_CONSOLE_COOKIE",
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
@@ -64,21 +68,24 @@ def run() -> dict:
         })
 
     present = _parse_present_keys(raw)
-    missing = [k for k in REQUIRED_ENV_KEYS if k not in present]
+    missing_optional = [k for k in OPTIONAL_FEATURE_KEYS if k not in present]
 
-    if missing:
-        return _exit(2, {
+    if missing_optional:
+        return _exit(0, {
             "name": "env_audit",
-            "status": "critical",
-            "message": f"P:/.env missing {len(missing)} required key(s)",
-            "details": [f"Missing: {', '.join(missing)}", f"Path: {path}"],
-            "fixable": [{"action": "append_missing_env_keys", "target": str(path)}],
+            "status": "healthy",
+            "message": f"P:/.env present; {len(missing_optional)} optional feature key(s) absent",
+            "details": [
+                f"Optional (not required for core): {', '.join(missing_optional)}",
+                "Needed only if using: /mm-quota console scrape, CCR proxy (cc-ccr), cc-bifrost",
+                f"Path: {path}",
+            ],
         })
 
     return _exit(0, {
         "name": "env_audit",
         "status": "healthy",
-        "message": f"All {len(REQUIRED_ENV_KEYS)} required env keys present",
+        "message": f"P:/.env present; all {len(OPTIONAL_FEATURE_KEYS)} optional feature keys present",
     })
 
 
