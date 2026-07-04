@@ -2203,17 +2203,6 @@ def main():
         show_history()
         return 0
 
-    # Cleanup mode - run cleanup.py --dry-run directly, skip all other checks
-    cleanup_script = TOOLS_DIR / "cleanup.py"
-    if cleanup_script.exists():
-        result = subprocess.run(
-            [sys.executable, str(cleanup_script), "--dry-run"],
-            capture_output=False,
-            timeout=60,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        return result.returncode
-
     start = time.time()
 
     # Load baseline for size tracking
