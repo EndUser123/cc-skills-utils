@@ -2088,6 +2088,7 @@ def run_all_checks(
         pending.append(("spec_drift", lambda: run_spec_drift_check()))
         pending.append(("skill_deps", lambda: run_skill_dependency_check()))
         pending.append(("regen_cap", lambda: run_regen_cap_check()))
+        pending.append(("wiki", lambda: run_check("wiki", TOOLS_DIR / "wiki_health_check.py", timeout=60)))
         pending.append(("repo_upstream", lambda: run_check("repo_upstream", TOOLS_DIR / "repo_upstream_check.py", timeout=60)))
 
     if include_deps:
