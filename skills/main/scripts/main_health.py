@@ -711,51 +711,50 @@ def run_cve_remediation_check() -> CheckResult:
                 duration_ms=duration_ms,
             )
 
-        # Parse output for what would be fixed
-        output_lines = result.stdout.splitlines()
+        # pip-audit writes the vulnerability table to stdout, but the
+        # "would have upgraded/skipped" action lines and the "Found N..."
+        # summary go to stderr (Python logging). Parse stderr for fixes.
+        action_lines = result.stderr.splitlines()
 
-        # Look for "Would install" or similar indicators
         fixable_packages = []
-        for line in output_lines:
-            line_lower = line.lower()
-            if (
-                "would install" in line_lower
-                or "would upgrade" in line_lower
-                or "install" in line_lower
-            ):
-                # Extract package names (format varies)
-                if "→" in line or "->" in line or " to " in line_lower:
-                    fixable_packages.append(line.strip())
+        no_fix_packages = []
+        found_summary = []
+        for line in action_lines:
+            ll = line.lower()
+            if "would have upgraded" in ll and " to " in ll:
+                fixable_packages.append(line.strip())
+            elif "would have skipped" in ll:
+                no_fix_packages.append(line.strip())
+            elif ll.startswith("found ") and "vulnerabilit" in ll:
+                found_summary.append(line.strip())
 
-        if result.returncode == 0:
-            # No vulnerabilities to fix
-            if not fixable_packages:
-                return CheckResult(
-                    name="cve_remediation",
-                    status="healthy",
-                    message="No CVE fixes needed",
-                    duration_ms=duration_ms,
-                )
+        if not fixable_packages and not no_fix_packages and not found_summary:
+            return CheckResult(
+                name="cve_remediation",
+                status="healthy",
+                message="No CVE fixes needed",
+                duration_ms=duration_ms,
+            )
 
-        # Build details from output
-        details = []
-        for line in output_lines:
-            line = line.strip()
-            if line and not line.startswith("Found ") and not line.startswith("Affected"):
-                details.append(line)
+        details = [l for l in fixable_packages[:15]]
 
-        status = "critical" if "Found" in result.stdout and "CVE" in result.stdout else "warning"
-        message = (
-            f"{len(fixable_packages)} package(s) can be upgraded"
-            if fixable_packages
-            else "Check CVE remediation options"
-        )
+        if fixable_packages:
+            status = "critical"
+            message = f"{len(fixable_packages)} package(s) can be upgraded"
+            if no_fix_packages:
+                message += f"; {len(no_fix_packages)} have no fix available"
+        elif no_fix_packages:
+            status = "warning"
+            message = f"{len(no_fix_packages)} vulnerable package(s) with no fix available"
+        else:
+            status = "warning"
+            message = "Check CVE remediation options"
 
         return CheckResult(
             name="cve_remediation",
             status=status,
             message=message,
-            details=details[:15],  # Limit output
+            details=details,
             duration_ms=duration_ms,
         )
 
