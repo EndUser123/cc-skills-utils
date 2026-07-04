@@ -318,20 +318,9 @@ _SUGGESTION_MAP: dict[tuple[str, str | None], list[dict]] = {
             "category": "quality",
         },
     ],
-    ("env_audit", "missing"): [
-        {
-            "skill": "/claude-automation-recommender",
-            "rationale": "Recommends the canonical P:/.env setup for this project",
-            "category": "correctness",
-        },
-        {
-            "skill": "/claude-audit",
-            "rationale": "Reviews existing .env for over-engineering and redundancy once recovered",
-            "category": "quality",
-        },
-    ],
-    # cve_remediation: fixable vulnerabilities
-    ("cve_remediation", "would install"): [
+    # cve_remediation: fixable vulnerabilities (matches pip-audit stderr
+    # "would have upgraded <pkg> <from> to <to>" action lines)
+    ("cve_remediation", "would have upgraded"): [
         {
             "skill": "/deps",
             "rationale": "Applies safe dependency upgrades to fix CVEs",

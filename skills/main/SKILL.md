@@ -116,7 +116,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 | **spec_drift** | SKILL.md execution directives reference scripts that don't exist |
 | **skill_deps** | Skill `depends_on_skills`/`suggest` references point to missing skills |
 | **wiki** | Wiki vault health — contradictions, orphan pages, broken wikilinks, stale claims (`/wiki lint`) |
-| **env_audit** | P:/.env presence + required keys (MINIMAX_*, ANTHROPIC_*, BIFROST_API_KEY). Missing/partial -> CRITICAL, fail fast (exit 2). |
+| **env_audit** | P:/.env presence. File missing/unreadable -> CRITICAL, fail fast (exit 2). No per-key assertion: cc-ccr sources CCR_LOCAL_KEY + provider keys from .env at launch and sets ANTHROPIC_BASE_URL/API_KEY/AUTH_TOKEN itself, so no individual key is universally required. |
 | **class_a_gate** | Class A RCA gate (`diagnostic_analysis_quality`) decision counts since 0.2.61 — sole source is `stop_gate_telemetry.jsonl` (diagnostics.db is blind to in-process gates). Informational; surface so the count can't be forgotten between runs. |
 
 ---

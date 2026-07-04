@@ -1,5 +1,5 @@
 # test_main_health.py — Unit tests for _match_suggestions pattern matching
-"""Parametrized tests covering all 16 SUGGESTION_MAP entries.
+"""Parametrized tests covering all SUGGESTION_MAP entries.
 
 Run with:
     pytest P:/.claude/skills/main/scripts/tests/test_main_health.py -v
@@ -146,10 +146,10 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         1,
         {"/deps"},
     ),
-    # cve_remediation — "would install" pattern
+    # cve_remediation — matches pip-audit stderr "would have upgraded ... to ..." action line
     (
         "cve_remediation",
-        "would install: httpx==0.27.1",
+        "would have upgraded httpx 0.27.0 to 0.27.1",
         "",
         1,
         {"/deps"},
@@ -162,18 +162,12 @@ CASE_TABLE: list[tuple[str, str, str, int, set[str]]] = [
         1,
         {"/git"},
     ),
-    # env_audit — "not found" pattern (missing P:/.env)
+    # env_audit — "not found" pattern (missing P:/.env). File-existence is the
+    # only env_audit check now; per-key requirements live in each feature's own
+    # check, so there is no "missing keys" fixture here.
     (
         "env_audit",
         "P:/.env not found at P:/.env",
-        "",
-        1,
-        {"/claude-automation-recommender", "/claude-audit"},
-    ),
-    # env_audit — "missing" pattern (partial P:/.env)
-    (
-        "env_audit",
-        "Missing: MINIMAX_CONSOLE_COOKIE, ANTHROPIC_AUTH_TOKEN",
         "",
         1,
         {"/claude-automation-recommender", "/claude-audit"},
