@@ -113,7 +113,10 @@ def main() -> int:
             else:
                 broken.append((stem, target))
 
-    # Orphans: content pages with zero inbound links
+    # Orphans: content pages with zero inbound links. Note: this count is
+    # inflated by intentional speculative red-links (/wiki SKILL.md policy:
+    # pages linking forward to not-yet-created pages). The ratio is a
+    # vault-maintenance signal, not a broken-link claim.
     orphans = sorted(
         s for s in pages
         if s not in NON_CONTENT_STEMS and inbound[s] == 0
