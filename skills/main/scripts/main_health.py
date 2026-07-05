@@ -2420,4 +2420,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # ponytail: exit 0 on successful run regardless of warning/critical findings —
+    # those are content the script produced, not process failure. main() still
+    # returns 0/1/2 for in-process callers; nothing in-tree consumes the process
+    # exit code, and Bash harnesses surface non-zero as a false "Error".
+    main()
+    sys.exit(0)

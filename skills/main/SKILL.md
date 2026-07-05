@@ -73,7 +73,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 - `main_health.py` internally runs checks sequentially (core checks always, slow checks skipped in `--quick` mode)
 - `main_health.py` handles its own error isolation — individual check failures don't crash the run
 - `main_health.py` subprocess calls: `pip-audit`, `pip list`, `pip install`, `cleanup.py`
-- `main_health.py` returns exit codes: 0=healthy, 1=warnings, 2=critical
+- `main_health.py` process exit code: 0 on successful run (regardless of warning/critical findings — those are content, not process failure). `main()` returns 0/1/2 internally for in-process callers; the script's CLI entry point always exits 0 unless it crashed.
 
 **DO NOT:**
 - Display this documentation without executing
