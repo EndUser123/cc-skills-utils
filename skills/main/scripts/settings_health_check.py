@@ -46,6 +46,8 @@ SYSTEM_VARS = {
     "OBLIGATION_TTL_SECONDS",  # Claude Code internal timeout
     "STRAWBERRY_VALIDATOR_ENABLED",  # Strawberry validation flag
     "STRAWBERRY_VALIDATOR_VERBOSE",  # Strawberry validation verbosity
+    "CLAUDE_CODE_ENABLE_AWAY_SUMMARY",  # Claude Code platform var, not a Python hook
+    "CLAUDE_CODE_TASK_LIST_ID",  # Claude Code platform var (task-list feature)
 }
 
 # Cache file for known env vars (avoid re-scanning)
@@ -69,18 +71,25 @@ def get_file_stats():
 def find_referenced_vars():
     """Scan active .py files for env var references."""
     referenced = set()
-    for f in glob.glob(r"P:/.claude/**/*.py", recursive=True):
-        if "_archive" in f or "backup" in f:
-            continue
-        try:
-            content = open(f, encoding="utf-8", errors="ignore").read()
-            # Quick scan for quoted uppercase identifiers
-            import re
+    # ponytail: scan P:/.claude AND plugin source — plugin hooks consume most env vars,
+    # so a P:/.claude-only glob falsely flags every plugin-only var as orphaned.
+    sources = [
+        r"P:/.claude/**/*.py",
+        r"P:/packages/.claude-marketplace/plugins/**/*.py",
+    ]
+    for pattern in sources:
+        for f in glob.glob(pattern, recursive=True):
+            if "_archive" in f or "backup" in f:
+                continue
+            try:
+                content = open(f, encoding="utf-8", errors="ignore").read()
+                # Quick scan for quoted uppercase identifiers
+                import re
 
-            matches = re.findall(r'["\']([A-Z][A-Z0-9_]{2,})["\']', content)
-            referenced.update(matches)
-        except:
-            pass
+                matches = re.findall(r'["\']([A-Z][A-Z0-9_]{2,})["\']', content)
+                referenced.update(matches)
+            except:
+                pass
     return referenced
 
 
