@@ -445,6 +445,11 @@ def run_check(name: str, script: Path, timeout: int = 30) -> CheckResult:
                         if ".lock" in part:
                             fixable.append({"action": "delete", "target": part})
 
+            # Wiki autofix: broken wikilinks are safely repairable via fuzzy match
+            # in wiki_health_check.py --fix. Throttle lives in apply_fixes, not here.
+            if name == "wiki" and "broken wikilink" in line_lower:
+                fixable.append({"action": "wiki_autofix", "target": str(TOOLS_DIR / "wiki_health_check.py")})
+
             if line.strip() and not line.startswith("Run:"):
                 details.append(line.strip())
 
@@ -1308,6 +1313,45 @@ def apply_fixes(checks: list[CheckResult], dry_run: bool = False) -> list[str]:
                                 )
                     except Exception as e:
                         fixed.append(f"Failed to truncate {target}: {e}")
+
+            elif action == "wiki_autofix":
+                # Intelligent gate: skip if throttled within WIKI_AUTOFIX_THROTTLE_DAYS.
+                # Stale-content refresh can't run here (subagent-driven); this only
+                # applies the safe deterministic link-repair subset.
+                sentinel = PROJECT_ROOT / ".claude" / ".artifacts" / "_main" / "wiki_autofix_last_run.txt"
+                throttle_days = 7
+                throttled = False
+                if sentinel.exists():
+                    try:
+                        last = datetime.fromisoformat(sentinel.read_text(encoding="utf-8").strip())
+                        if (datetime.now() - last).days < throttle_days:
+                            throttled = True
+                            fixed.append(
+                                f"Wiki autofix throttled (last run {last.date()}, <{throttle_days}d ago) — skipped"
+                            )
+                    except (ValueError, OSError):
+                        pass  # corrupt sentinel → run anyway
+                if throttled:
+                    continue
+
+                cmd = [sys.executable, target, "--fix"]
+                if dry_run:
+                    cmd.append("--dry-run")
+                try:
+                    r = subprocess.run(
+                        cmd, capture_output=True, text=True, timeout=90,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    )
+                    out = (r.stdout + r.stderr).strip()
+                    fixed.append(f"Wiki autofix ({'dry-run' if dry_run else 'applied'}): {out.splitlines()[0] if out else 'no changes'}")
+                    for line in out.splitlines()[1:]:
+                        if line.startswith("•"):
+                            fixed.append(f"  {line}")
+                    if not dry_run and r.returncode == 0:
+                        sentinel.parent.mkdir(parents=True, exist_ok=True)
+                        sentinel.write_text(datetime.now().isoformat(), encoding="utf-8")
+                except Exception as e:
+                    fixed.append(f"Failed wiki autofix: {e}")
 
             elif action == "delete":
                 # SECURITY: Validate path stays within safe project boundaries before deletion
