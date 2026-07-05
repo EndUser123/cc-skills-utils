@@ -6,6 +6,7 @@ Covers four modes of wiki_health_check.py: check (graph + staleness), --fix
 """
 from __future__ import annotations
 
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -177,6 +178,77 @@ def test_vault_fingerprint_changes_on_edit(vault: Path):
 
 def test_vault_fingerprint_missing_vault(tmp_path: Path):
     assert w.vault_fingerprint(tmp_path / "nope") == "missing"
+
+
+# --- Source drift (P3a) ---
+
+def test_source_drift_no_source_url_pages(vault: Path, monkeypatch):
+    """Vault with no source_url frontmatter → empty drift list. No fetch attempted."""
+    called = []
+    monkeypatch.setattr(w, "_fetch_url", lambda url, timeout=5.0: called.append(url) or b"x")
+    assert w.check_source_drift(vault) == []
+    assert called == []  # nothing to fetch
+
+
+def test_source_drift_detects_change(tmp_path: Path, monkeypatch):
+    v = tmp_path / "wiki"
+    v.mkdir()
+    content = b"upstream v1"
+    stored = hashlib.sha256(content).hexdigest()
+    (v / "tracked.md").write_text(
+        f"---\ntitle: Tracked\nsource_url: https://example.com/doc\nsource_hash: {stored}\n---\nbody\n",
+        encoding="utf-8",
+    )
+    # Upstream changed — fetch returns different bytes.
+    monkeypatch.setattr(w, "_fetch_url", lambda url, timeout=5.0: b"upstream v2 CHANGED")
+    drift = w.check_source_drift(v)
+    assert len(drift) == 1
+    assert drift[0]["stem"] == "tracked"
+    assert drift[0]["reason"] == "changed"
+
+
+def test_source_drift_matching_hash_no_drift(tmp_path: Path, monkeypatch):
+    v = tmp_path / "wiki"
+    v.mkdir()
+    content = b"upstream stable"
+    (v / "stable.md").write_text(
+        f"---\ntitle: Stable\nsource_url: https://example.com/s\n"
+        f"source_hash: {hashlib.sha256(content).hexdigest()}\n---\nbody\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(w, "_fetch_url", lambda url, timeout=5.0: content)
+    assert w.check_source_drift(v) == []
+
+
+def test_source_drift_missing_hash_flagged(tmp_path: Path, monkeypatch):
+    v = tmp_path / "wiki"
+    v.mkdir()
+    (v / "uninit.md").write_text(
+        "---\ntitle: Uninit\nsource_url: https://example.com/x\n---\nbody\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(w, "_fetch_url", lambda url, timeout=5.0: b"anything")
+    drift = w.check_source_drift(v)
+    assert len(drift) == 1
+    assert drift[0]["reason"] == "missing_hash"
+
+
+def test_source_drift_fetch_failure_graceful(tmp_path: Path, monkeypatch):
+    v = tmp_path / "wiki"
+    v.mkdir()
+    (v / "dead.md").write_text(
+        f"---\ntitle: Dead\nsource_url: https://example.com/dead\n"
+        f"source_hash: {hashlib.sha256(b'x').hexdigest()}\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    def boom(url, timeout=5.0):
+        raise ConnectionError("refused")
+
+    monkeypatch.setattr(w, "_fetch_url", boom)
+    drift = w.check_source_drift(v)
+    assert len(drift) == 1
+    assert drift[0]["reason"].startswith("fetch_failed:ConnectionError")
 
 
 # --- JSON / stale CLI smoke (subprocess) ---

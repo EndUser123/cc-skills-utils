@@ -13,6 +13,9 @@ Single source of truth for wiki diagnostics. Three modes share one engine:
                      orphans or red-links — wiki policy keeps speculative links.
   --stale            List stale pages (mtime older than --max-age days), newest
                      first, capped by --limit. Used by /wiki update.
+  --source-drift     Scan pages with `source_url` frontmatter: fetch each URL,
+                     hash content, flag drift vs stored `source_hash`. Opt-in —
+                     not run by default (network latency). Used by /wiki update.
   --json             Structured output (any mode).
 
 Judgment-based lint (contradictions, stale claims, orphan merge) stays in the
@@ -30,6 +33,7 @@ import os
 import re
 import sys
 import time
+import urllib.request
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -219,6 +223,62 @@ def vault_fingerprint(vault: Path) -> str:
     return h.hexdigest()
 
 
+def _fetch_url(url: str, timeout: float = 5.0) -> bytes:
+    """Fetch URL content via stdlib. Raises on network/HTTP error."""
+    req = urllib.request.Request(url, headers={"User-Agent": "wiki-health-check/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def check_source_drift(
+    vault: Path, timeout: float = 5.0, limit: int = 50
+) -> list[dict]:
+    """Detect pages whose upstream `source_url` content changed.
+
+    For each page with a `source_url` frontmatter field: fetch the URL,
+    sha256-hash the content, compare to the stored `source_hash` field.
+    Returns drift records as {stem, url, reason} where reason is:
+      - "changed": fetched hash != stored source_hash
+      - "missing_hash": page has source_url but no source_hash (needs initial population)
+      - "fetch_failed:<ExceptionName>": network/HTTP error (warning, not crash)
+
+    Opt-in via --source-drift; not in the default check to keep /main latency
+    predictable. Pages without `source_url` are invisible to this scan.
+
+    ponytail: zero pages have source_url today — this ships latent and lights
+    up once an ingest path populates source_url + source_hash (P3b).
+    """
+    if not vault.is_dir():
+        return []
+    drift: list[dict] = []
+    seen = 0
+    for path in sorted(vault.rglob("*.md")):
+        if seen >= limit:
+            break
+        try:
+            fm = _parse_frontmatter(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        url = fm.get("source_url")
+        if not url:
+            continue
+        seen += 1
+        stored_hash = fm.get("source_hash")
+        if not stored_hash:
+            drift.append({"stem": path.stem, "url": url, "reason": "missing_hash"})
+            continue
+        try:
+            content = _fetch_url(url, timeout=timeout)
+        except Exception as e:
+            drift.append(
+                {"stem": path.stem, "url": url, "reason": f"fetch_failed:{type(e).__name__}"}
+            )
+            continue
+        if hashlib.sha256(content).hexdigest() != stored_hash:
+            drift.append({"stem": path.stem, "url": url, "reason": "changed"})
+    return drift
+
+
 def apply_safe_fixes(vault: Path, dry_run: bool = False) -> list[str]:
     """Repair broken wikilinks via unique fuzzy match. Returns human-readable log lines.
 
@@ -326,6 +386,22 @@ def _emit_stale(result: dict, limit: int) -> int:
     return 0
 
 
+def _emit_source_drift(drift: list[dict]) -> int:
+    if not drift:
+        print("No source drift (0 pages with `source_url` changed).")
+        return 0
+    changed = [d for d in drift if d["reason"] == "changed"]
+    missing = [d for d in drift if d["reason"] == "missing_hash"]
+    failed = [d for d in drift if d["reason"].startswith("fetch_failed")]
+    print(
+        f"Source drift: {len(changed)} changed, {len(missing)} missing hash, "
+        f"{len(failed)} fetch failed"
+    )
+    for d in drift:
+        print(f"• {d['reason']}\t{d['stem']}\t{d['url']}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Wiki vault health check + safe repair")
     parser.add_argument("--vault", type=Path, default=None, help=f"Vault dir (default: $[{VAULT_ENV}] or {DEFAULT_VAULT})")
@@ -336,12 +412,22 @@ def main() -> int:
     parser.add_argument("--max-age", type=int, default=DEFAULT_MAX_AGE_DAYS, help=f"Staleness threshold in days (default {DEFAULT_MAX_AGE_DAYS})")
     parser.add_argument("--limit", type=int, default=DEFAULT_STALE_LIMIT, help=f"Cap on stale list / fix candidates (default {DEFAULT_STALE_LIMIT})")
     parser.add_argument("--fingerprint", action="store_true", help="Print vault mtime fingerprint (needs-based gate signal for /main)")
+    parser.add_argument("--source-drift", action="store_true", help="Check pages with `source_url` frontmatter for upstream changes")
+    parser.add_argument("--source-timeout", type=float, default=5.0, help="Per-URL fetch timeout for --source-drift (default 5.0s)")
     args = parser.parse_args()
 
     vault = args.vault or Path(os.environ.get(VAULT_ENV, str(DEFAULT_VAULT)))
 
     if args.fingerprint:
         print(vault_fingerprint(vault))
+        return 0
+
+    if args.source_drift:
+        drift = check_source_drift(vault, timeout=args.source_timeout)
+        if args.json:
+            print(json.dumps({"source_drift": drift, "total": len(drift)}, indent=2))
+        else:
+            _emit_source_drift(drift)
         return 0
 
     if args.fix:
