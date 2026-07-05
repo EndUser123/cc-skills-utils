@@ -2594,17 +2594,42 @@ def main(argv: list[str]) -> int:
             else:
                 print(f"  {C_YELLOW}Marketplace update failed: {mp_update.stderr.strip() or mp_update.stdout.strip()}{C_RESET}")
 
-            # Verify zero drift for the bumped plugin
-            drift = audit_source_cache_drift(plugins_dir.parent if plugins_dir.name == "plugins" else plugins_dir)
+            # Verify zero drift for the bumped plugin; re-sync then RE-VERIFY.
+            # Without the re-audit, a persistent drift (file-locked, permission
+            # error, bidir_sync clobber) would print "Re-synced" and return 0,
+            # masking the failure — see memory plugin_bidir_sync_source_wins.md.
+            _drift_root = plugins_dir.parent if plugins_dir.name == "plugins" else plugins_dir
+            drift = audit_source_cache_drift(_drift_root)
             drift = [f for f in drift if f["plugin"] == pkg_name and f["type"] == "source_modified"]
             if drift:
                 print(f"  {C_YELLOW}Drift detected after bump — re-syncing...{C_RESET}")
+                resync_errors: list[str] = []
                 for f in drift:
                     version_dir = cache_root / pkg_name / f["cache_version"]
                     src_path = plugins_dir / pkg_name
                     if src_path.exists() and version_dir.exists():
-                        bidir_sync(src_path, version_dir)
+                        stats = bidir_sync(src_path, version_dir)
+                        if stats.get("errors"):
+                            resync_errors.extend(stats["errors"])
                         print(f"  {C_GREEN}Re-synced {pkg_name}.{C_RESET}")
+                # ponytail: the re-audit is the load-bearing check — bidir_sync
+                # returning no errors does not prove bytes match (known clobber
+                # failure mode). Only a clean second audit certifies zero drift.
+                second_drift = [
+                    f for f in audit_source_cache_drift(_drift_root)
+                    if f["plugin"] == pkg_name and f["type"] == "source_modified"
+                ]
+                if second_drift or resync_errors:
+                    print(
+                        f"  {C_RED}PERSISTENT DRIFT after re-sync for {pkg_name}: "
+                        f"{len(second_drift)} file(s) still differ, "
+                        f"{len(resync_errors)} sync error(s).{C_RESET}",
+                        file=sys.stderr,
+                    )
+                    for err in resync_errors:
+                        print(f"  {C_RED}  sync error: {err}{C_RESET}", file=sys.stderr)
+                    return 1
+                print(f"  {C_GREEN}Zero drift confirmed for {pkg_name} after re-sync.{C_RESET}")
             else:
                 print(f"  {C_GREEN}Zero drift confirmed for {pkg_name}.{C_RESET}")
 
