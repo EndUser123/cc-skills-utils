@@ -554,10 +554,7 @@ def _is_generic_message(msg: str) -> bool:
     if not msg or msg == DEFAULT_COMMIT_MESSAGE:
         return True
     subject = _COMMIT_PREFIX_RE.sub("", msg).strip().lower()
-    if subject in _GENERIC_SUBJECTS:
-        return True
-    # generate_subject() also emits 'update <noun> hook/skill/documentation'.
-    return subject.startswith("update ")
+    return subject in _GENERIC_SUBJECTS
 
 
 def _transcript_subject(transcript_path: str) -> str | None:
@@ -622,23 +619,48 @@ def _transcript_subject(transcript_path: str) -> str | None:
 
 def _apply_fallback_chain(
     msg: str, group_key: str, transcript_path: str | None, hint_type: str = "chore"
-) -> str:
+) -> tuple[str, str]:
     """Walk parser -> transcript -> group-key. Preserves merge/analyzer messages.
 
-    A message from the change-analyzer or a merge is kept as-is (it carries real
-    content or explicit merge semantics). Only a generic/empty parser result is
-    replaced, and only ever with a directive or the group-key fallback.
+    Returns (message, layer) where layer tags which branch won, for telemetry:
+    "preserved" (parser/analyzer/merge had real content), "transcript", or
+    "group_key".
     """
     # Preserve any message with real content: a non-default, non-generic parser
     # result (this includes MERGE_COMMIT_MESSAGE and change-analyzer output —
     # both carry semantics worth keeping). Only empty/generic/DEFAULT falls through.
     if msg and msg != DEFAULT_COMMIT_MESSAGE and not _is_generic_message(msg):
-        return msg
+        return msg, "preserved"
     if transcript_path:
         subj = _transcript_subject(transcript_path)
         if subj:
-            return f"{hint_type}: {subj}"
-    return f"auto-commit: {group_key} session changes"
+            return f"{hint_type}: {subj}", "transcript"
+    return f"auto-commit: {group_key} session changes", "group_key"
+
+
+_TELEMETRY_DIR = PROJECT_ROOT / ".claude" / "state" / "auto_commit"
+
+
+def _emit_commit_telemetry(session_id: str, layer: str, msg: str, cwd: Path) -> None:
+    """Append one row per commit emit to commits.jsonl. Fail-open."""
+    try:
+        import time
+        sha = ""
+        rev = run_git_command(["rev-parse", "HEAD"], cwd)
+        if rev.returncode == 0:
+            sha = rev.stdout.strip()
+        row = {
+            "ts": int(time.time()),
+            "session_id": session_id,
+            "fallback_layer": layer,
+            "commit_msg": msg,
+            "commit_sha": sha,
+        }
+        _TELEMETRY_DIR.mkdir(parents=True, exist_ok=True)
+        with (_TELEMETRY_DIR / "commits.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+    except Exception:
+        pass
 
 
 def _commit_grouped(cwd: Path, groups: dict[str, list[str]], transcript_path: str | None = None) -> bool:
@@ -661,7 +683,7 @@ def _commit_grouped(cwd: Path, groups: dict[str, list[str]], transcript_path: st
                 msg = generate_semantic_commit_message(str(cwd))
             except Exception:
                 pass
-        msg = _apply_fallback_chain(msg, group_key, transcript_path)
+        msg, layer = _apply_fallback_chain(msg, group_key, transcript_path)
         if session_id != "unknown":
             msg = f"[{session_id}] {msg}"
         ok = False
@@ -674,6 +696,7 @@ def _commit_grouped(cwd: Path, groups: dict[str, list[str]], transcript_path: st
             ok = run_git_command(["commit", "-m", msg], cwd).returncode == 0
         if ok:
             committed_any = True
+            _emit_commit_telemetry(session_id, layer, msg, cwd)
     if committed_any:
         analyze_opportunities(cwd)
     return committed_any
@@ -840,7 +863,7 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     # transcript directive -> group-key. Ungrouped path uses the single subsystem.
     _grp_paths = _get_changed_paths(cwd)
     _group_key = _commit_group_key(_grp_paths[0]) if _grp_paths else "root"
-    commit_msg = _apply_fallback_chain(commit_msg, _group_key, transcript_path)
+    commit_msg, _layer = _apply_fallback_chain(commit_msg, _group_key, transcript_path)
 
     # Session-linked commit: tag with session ID for traceability
     session_id = get_session_id_for_commit()
@@ -860,6 +883,7 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
 
     # Only add notifications if commit actually succeeded
     if commit_success:
+        _emit_commit_telemetry(session_id, _layer, commit_msg, cwd)
         # DUF/brainstorm notifications removed - now triggered by session_end
         # via notification_decoupling module, not auto_commit
         # See: P:\__csf\src\features\modules\notification\notification_decoupling.py
