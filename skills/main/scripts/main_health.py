@@ -1162,6 +1162,73 @@ def run_regen_cap_check() -> CheckResult:
     )
 
 
+# NOTE: Not enhancing run_spec_drift_check() because that scan is scoped to
+# SKILL.md EXECUTION DIRECTIVE blocks; doc_drift covers a different surface
+# (CLAUDE.md prose + settings.json hook commands) where the 2026-07-05
+# plugin-audit-and-fix.py stale-path incident actually lived. Grep of scripts/
+# confirmed no existing CLAUDE.md/settings.json path validator to reuse.
+def run_doc_drift_check() -> CheckResult:
+    """Verify absolute script paths in CLAUDE.md / settings.json still exist."""
+    import re
+
+    start = time.time()
+    details: list[str] = []
+    missing_count = 0
+
+    # Absolute Windows path ending in a script extension. Requires drive letter
+    # to avoid matching URL paths or POSIX example paths in code blocks.
+    path_re = re.compile(r"\b[A-Z]:[\\/][^\s'\"<>{}]+?\.(?:py|ps1|sh)\b")
+
+    targets: list[Path] = [
+        Path.home() / ".claude" / "CLAUDE.md",
+        Path("P:/CLAUDE.md"),
+        Path("P:/.claude/settings.json"),
+        Path("P:/packages/CLAUDE.md"),
+    ]
+    plugins_root = Path("P:/packages/.claude-marketplace/plugins")
+    if plugins_root.exists():
+        targets.extend(plugins_root.rglob("CLAUDE.md"))
+
+    seen_missing: set[tuple[str, str]] = set()
+    for target in targets:
+        if not target.exists():
+            continue
+        try:
+            content = target.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        # Strip fenced code blocks (``` or ~~~) so illustrative example paths
+        # in hooks.json/CLI samples don't false-positive. Prose references persist.
+        prose = re.sub(r"^[ \t]*(```|~~~).*?\n[ \t]*\1.*$", "", content, flags=re.MULTILINE | re.DOTALL)
+        for match in path_re.finditer(prose):
+            path_str = match.group(0)
+            # Skip glob/placeholder patterns and inline-code examples
+            if any(tok in path_str for tok in ("*", "?", "<", ">", "{", "}")):
+                continue
+            if Path(path_str).exists():
+                continue
+            key = (str(target), path_str)
+            if key in seen_missing:
+                continue
+            seen_missing.add(key)
+            missing_count += 1
+            details.append(f"{target.name}: {path_str} → NOT FOUND")
+
+    status = "warning" if missing_count > 0 else "healthy"
+    message = (
+        f"{missing_count} stale doc path(s)" if missing_count > 0
+        else "All doc paths resolve"
+    )
+
+    return CheckResult(
+        name="doc_drift",
+        status=status,
+        message=message,
+        details=details[:20],
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+
 def run_skill_dependency_check() -> CheckResult:
     """Check skill dependency references are valid.
 
@@ -2140,6 +2207,7 @@ def run_all_checks(
             pending.append((name, lambda s=script, n=name: run_check(n, s)))
         pending.append(("filesystem", lambda: run_filesystem_check()))
         pending.append(("spec_drift", lambda: run_spec_drift_check()))
+        pending.append(("doc_drift", lambda: run_doc_drift_check()))
         pending.append(("skill_deps", lambda: run_skill_dependency_check()))
         pending.append(("regen_cap", lambda: run_regen_cap_check()))
         pending.append(("wiki", lambda: run_check("wiki", TOOLS_DIR / "wiki_health_check.py", timeout=60)))
