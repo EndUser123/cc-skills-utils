@@ -151,7 +151,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 
 | Category | Thresholds |
 |----------|-----------|
-| **Settings** | Lines <=900, Size <=35KB, Env vars <=70, Hooks <=60 |
+| **Settings** | Lines <=900, Size <=35KB, Hooks <=60, No dead env vars |
 | **Hooks** | Timeout rate <=20%, Avg latency <=2000ms, Log dir <=10MB |
 | **CKS** | Min entries >=100, Embedding coverage >=90%, Stale: 7 days |
 | **Workspace** | No RESTORE_CONTEXT.md, No stale locks, Uncommitted <=20 |

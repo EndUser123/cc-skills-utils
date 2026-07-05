@@ -22,7 +22,6 @@ from pathlib import Path
 # Thresholds
 MAX_LINES = 900
 MAX_SIZE_KB = 35
-MAX_ENV_VARS = 70
 MAX_HOOK_ENTRIES = 60
 
 # Subdirectories to skip (reduces scan scope)
@@ -179,10 +178,9 @@ def main():
     if stats["size_kb"] > MAX_SIZE_KB:
         issues.append(f"File size {stats['size_kb']:.1f}KB exceeds {MAX_SIZE_KB}KB")
 
-    # 2. Env var count
+    # 2. Env var count (no magic-number threshold: count alone is not debt.
+    #    Real signal is dead vars — vars with zero active consumers — surfaced below.)
     env_count = len(settings.get("env", {}))
-    if env_count > MAX_ENV_VARS:
-        issues.append(f"Env vars {env_count} exceeds {MAX_ENV_VARS}")
 
     # 3. Dead env vars (always run - archive-only or unreferenced vars)
     referenced = find_referenced_vars()
