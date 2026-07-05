@@ -1212,7 +1212,12 @@ def run_doc_drift_check() -> CheckResult:
                 continue
             seen_missing.add(key)
             missing_count += 1
-            details.append(f"{target.name}: {path_str} → NOT FOUND")
+            # Disambiguate same-named targets (many CLAUDE.md files)
+            try:
+                rel = str(target.relative_to(Path("P:/"))).replace("\\", "/")
+            except ValueError:
+                rel = target.name
+            details.append(f"{rel}: {path_str} → NOT FOUND")
 
     status = "warning" if missing_count > 0 else "healthy"
     message = (
