@@ -1050,9 +1050,10 @@ def run_spec_drift_check() -> CheckResult:
     import re
 
     # Patterns to match execution directives
-    # Require path indicators: /, \, .py, .sh, or drive letter prefix
-    python_pattern = re.compile(r"\bpython\s+([^\s]*(?:[/.\\][^\s]*)+)", re.IGNORECASE)
-    bash_pattern = re.compile(r"\bbash\s+([^\s]*(?:[/.\\][^\s]*)+)", re.IGNORECASE)
+    # ponytail: require a real path separator (/ or \) — accepting '.' caused false positives
+    # on English prose like "Skip the Bash execution." where 'execution.' looks path-like.
+    python_pattern = re.compile(r"\bpython\s+([^\s]*(?:[\\/][^\s]*)+)", re.IGNORECASE)
+    bash_pattern = re.compile(r"\bbash\s+([^\s]*(?:[\\/][^\s]*)+)", re.IGNORECASE)
 
     for skills_dir in skills_skill_dirs:
         if not skills_dir.exists():
