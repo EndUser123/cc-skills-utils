@@ -19,7 +19,6 @@ workflow_steps:
   - reflect: Opt-in /reflect invocation (ask the user; skip if --quick used)
 suggest:
   - /usm
-  - /plugin-doctor
   - /recover
 ---
 
@@ -118,6 +117,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 | **wiki** | Wiki vault health — contradictions, orphan pages, broken wikilinks, stale claims (`/wiki lint`) |
 | **env_audit** | P:/.env presence. File missing/unreadable -> CRITICAL, fail fast (exit 2). No per-key assertion: cc-ccr sources CCR_LOCAL_KEY + provider keys from .env at launch and sets ANTHROPIC_BASE_URL/API_KEY/AUTH_TOKEN itself, so no individual key is universally required. |
 | **class_a_gate** | Class A RCA gate (`diagnostic_analysis_quality`) decision counts since 0.2.61 — sole source is `stop_gate_telemetry.jsonl` (diagnostics.db is blind to in-process gates). Informational; surface so the count can't be forgotten between runs. |
+| **identity_handshake** | `identity.json` for the current terminal matches live `CLAUDE_SESSION_ID` — stale data misdirects snapshot/CHS/GTO/recap readers. Healthy no-op when run outside a live session. Ported from retired `/plugin-doctor`. |
 
 ---
 

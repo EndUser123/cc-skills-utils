@@ -323,3 +323,88 @@ def test_env_audit_script_exits_critical_when_file_missing(tmp_path, monkeypatch
     payload = _json.loads(buf.getvalue())
     assert payload["status"] == "critical"
     assert "not found" in payload["message"].lower()
+
+
+# ---------------------------------------------------------------------
+# identity_handshake — ported from retired /plugin-doctor
+# Five branches: no-tid, tid-without-sid, missing-file, match, stale.
+# ---------------------------------------------------------------------
+
+@pytest.fixture
+def _iso_env(monkeypatch):
+    """Clear identity-related env so each test starts from a known state."""
+    for k in ("CLAUDE_TERMINAL_ID", "WT_SESSION", "CLAUDE_SESSION_ID"):
+        monkeypatch.delenv(k, raising=False)
+
+
+def test_identity_handshake_no_terminal_id(_iso_env):
+    r = main_health_module.run_identity_handshake_check()
+    assert r.name == "identity_handshake"
+    assert r.status == "healthy"
+    assert "no terminal ID" in r.message
+
+
+def test_identity_handshake_no_live_session(_iso_env, monkeypatch):
+    monkeypatch.setenv("CLAUDE_TERMINAL_ID", "test_tid")
+    r = main_health_module.run_identity_handshake_check()
+    assert r.status == "healthy"
+    assert "no live CLAUDE_SESSION_ID" in r.message
+
+
+def test_identity_handshake_missing_file(_iso_env, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_TERMINAL_ID", "test_tid")
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "aaaaaaaa-bbbb")
+    monkeypatch.setattr(main_health_module, "_IDENTITY_ARTIFACTS_ROOT", tmp_path)
+    r = main_health_module.run_identity_handshake_check()
+    assert r.status == "warning"
+    assert "identity.json missing" in r.message
+
+
+def test_identity_handshake_fresh_match(_iso_env, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_TERMINAL_ID", "test_tid")
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "aaaaaaaa-bbbb")
+    monkeypatch.setattr(main_health_module, "_IDENTITY_ARTIFACTS_ROOT", tmp_path)
+    (tmp_path / "test_tid").mkdir()
+    (tmp_path / "test_tid" / "identity.json").write_text(
+        '{"claude": {"session_id": "aaaaaaaa-bbbb"}}', encoding="utf-8"
+    )
+    r = main_health_module.run_identity_handshake_check()
+    assert r.status == "healthy"
+    assert "fresh" in r.message
+
+
+def test_identity_handshake_stale_mismatch(_iso_env, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_TERMINAL_ID", "test_tid")
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "aaaaaaaa-bbbb")
+    monkeypatch.setattr(main_health_module, "_IDENTITY_ARTIFACTS_ROOT", tmp_path)
+    (tmp_path / "test_tid").mkdir()
+    (tmp_path / "test_tid" / "identity.json").write_text(
+        '{"claude": {"session_id": "deadbeef-cccc"}}', encoding="utf-8"
+    )
+    r = main_health_module.run_identity_handshake_check()
+    assert r.status == "warning"
+    assert "Stale identity" in r.message
+    assert "deadbeef" in r.message
+    assert "aaaaaaaa" in r.message
+
+
+def test_identity_handshake_unreadable_file(_iso_env, monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_TERMINAL_ID", "test_tid")
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "aaaaaaaa-bbbb")
+    monkeypatch.setattr(main_health_module, "_IDENTITY_ARTIFACTS_ROOT", tmp_path)
+    (tmp_path / "test_tid").mkdir()
+    (tmp_path / "test_tid" / "identity.json").write_text("{not json", encoding="utf-8")
+    r = main_health_module.run_identity_handshake_check()
+    assert r.status == "warning"
+    assert "unreadable" in r.message
+
+
+def test_identity_handshake_wt_session_fallback(_iso_env, monkeypatch, tmp_path):
+    """WT_SESSION env resolves to console_<wt> when CLAUDE_TERMINAL_ID is unset."""
+    monkeypatch.setenv("WT_SESSION", "abc123")
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "aaaaaaaa-bbbb")
+    monkeypatch.setattr(main_health_module, "_IDENTITY_ARTIFACTS_ROOT", tmp_path)
+    r = main_health_module.run_identity_handshake_check()
+    # tmp_path/console_abc123/identity.json doesn't exist → warning
+    assert r.status == "warning"
+    assert "console_abc123" in r.message

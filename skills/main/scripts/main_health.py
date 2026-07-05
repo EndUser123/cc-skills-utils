@@ -39,6 +39,7 @@ PROJECT_ROOT = Path("P:/")
 HISTORY_FILE = CLAUDE_DIR / "session_data" / "health_history.jsonl"
 ENV_STATE_FILE = CLAUDE_DIR / "session_data" / "env_vars_state.json"
 BASELINE_FILE = CLAUDE_DIR / "session_data" / "health_baseline.json"
+_IDENTITY_ARTIFACTS_ROOT = Path("P:/.claude/.artifacts")
 
 
 @dataclass
@@ -2141,6 +2142,91 @@ def run_outdated_packages_check() -> CheckResult:
         )
 
 
+def run_identity_handshake_check() -> CheckResult:
+    """Verify the session identity handshake is fresh for the current terminal.
+
+    Ports the runtime check from the retired /plugin-doctor
+    (skills/plugin-doctor/scripts/doctor_main.py:check_identity_handshake).
+    Reads P:/.claude/.artifacts/{safe_tid}/identity.json and compares the
+    cached ``claude.session_id`` to the live ``CLAUDE_SESSION_ID``. A mismatch
+    means snapshot/CHS/GTO/recap readers — which key off identity.json — are
+    pointed at a stale session. The writer is the snapshot plugin's
+    SessionStart_identity_capture hook.
+
+    Informational (status=healthy) when run outside a live session: with no
+    ``CLAUDE_SESSION_ID`` env there is nothing to be stale against, so the
+    check no-ops rather than false-warns under CLI/audit invocations.
+    """
+    import os
+    start = time.time()
+
+    tid = os.environ.get("CLAUDE_TERMINAL_ID")
+    if not tid:
+        wt_session = os.environ.get("WT_SESSION")
+        if wt_session:
+            tid = f"console_{wt_session}"
+
+    if not tid:
+        return CheckResult(
+            name="identity_handshake",
+            status="healthy",
+            message="Identity handshake: no terminal ID detected (set CLAUDE_TERMINAL_ID to evaluate)",
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    live_sid = os.environ.get("CLAUDE_SESSION_ID")
+    if not live_sid:
+        return CheckResult(
+            name="identity_handshake",
+            status="healthy",
+            message="Identity handshake: no live CLAUDE_SESSION_ID (run from a live session to evaluate staleness)",
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    safe_tid = tid.replace("/", "-").replace("\\", "-").replace(":", "-")
+    identity_path = _IDENTITY_ARTIFACTS_ROOT / safe_tid / "identity.json"
+
+    if not identity_path.exists():
+        return CheckResult(
+            name="identity_handshake",
+            status="warning",
+            message=f"identity.json missing for terminal {tid} (SessionStart identity capture may not have fired)",
+            details=[f"• expected: {identity_path}"],
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    try:
+        data = json.loads(identity_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return CheckResult(
+            name="identity_handshake",
+            status="warning",
+            message=f"identity.json unreadable for terminal {tid}: {e}",
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    cached_sid = data.get("claude", {}).get("session_id")
+    if cached_sid != live_sid:
+        cached_repr = cached_sid[:8] if cached_sid else "none"
+        return CheckResult(
+            name="identity_handshake",
+            status="warning",
+            message=(
+                f"Stale identity: cached={cached_repr}, live={live_sid[:8]} "
+                "(snapshot/CHS/GTO/recap readers may be pointed at the wrong session)"
+            ),
+            details=[f"• terminal: {tid}", f"• path: {identity_path}"],
+            duration_ms=int((time.time() - start) * 1000),
+        )
+
+    return CheckResult(
+        name="identity_handshake",
+        status="healthy",
+        message=f"Identity handshake fresh (terminal {tid}, session {live_sid[:8]})",
+        duration_ms=int((time.time() - start) * 1000),
+    )
+
+
 def run_all_checks(
     quick: bool = False,
     include_deps: bool = False,
@@ -2181,6 +2267,11 @@ def run_all_checks(
     # diagnostic_analysis_quality gate's block/warn/allow counts (sole source:
     # stop_gate_telemetry.jsonl). See run_class_a_gate_check docstring.
     checks.append(run_class_a_gate_check())
+
+    # Identity handshake (fast, always run) - verifies identity.json for the
+    # current terminal matches the live CLAUDE_SESSION_ID. No-ops (healthy)
+    # when run outside a live session. Ported from retired /plugin-doctor.
+    checks.append(run_identity_handshake_check())
 
     # Slow checks (skip in quick mode)
     slow_checks = [
