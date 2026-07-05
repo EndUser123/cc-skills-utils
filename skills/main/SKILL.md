@@ -16,7 +16,7 @@ depends_on_skills: []
 output_format: 2
 workflow_steps:
   - health: Run main_health.py with appropriate flags
-  - reflect: Optional /reflect invocation (skip if --quick used)
+  - reflect: Opt-in /reflect invocation (ask the user; skip if --quick used)
 suggest:
   - /usm
   - /plugin-doctor
@@ -65,7 +65,7 @@ On invocation (no flags), `main_health.py` runs `cleanup.py --dry-run` first wit
 
 **Step 3: Display results** — pass through the script's own output verbatim. The script formats its own results.
 
-**Step 4: Reflection (conditional)** — invoke `/reflect` only if `--quick` was NOT used.
+**Step 4: Reflection (opt-in)** — do NOT auto-invoke `/reflect`. After displaying results, ask the user once: "Run `/reflect` to capture session learnings? (y/n)". Invoke only on explicit affirmation. Skip the prompt entirely if `--quick` was used.
 
 **Execution notes:**
 - Single Python script, no subprocess spawning from the skill side
