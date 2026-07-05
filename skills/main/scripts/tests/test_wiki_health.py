@@ -153,6 +153,32 @@ def test_unique_fuzzy_match_rejects_low_confidence():
     assert m is None
 
 
+# --- Needs-based gate signal ---
+
+def test_vault_fingerprint_stable_when_unchanged(vault: Path):
+    a = w.vault_fingerprint(vault)
+    b = w.vault_fingerprint(vault)
+    assert a == b
+    assert a != "missing"
+
+
+def test_vault_fingerprint_changes_on_edit(vault: Path):
+    import os, time as _time
+    before = w.vault_fingerprint(vault)
+    # Bump mtime of a page by writing + setting mtime to be safe on coarse-grained FSes.
+    (vault / "hook-architecture.md").write_text(
+        "---\ntitle: Hook Architecture\n---\nbody v2\n", encoding="utf-8"
+    )
+    future = _time.time() + 60
+    os.utime(vault / "hook-architecture.md", (future, future))
+    after = w.vault_fingerprint(vault)
+    assert before != after
+
+
+def test_vault_fingerprint_missing_vault(tmp_path: Path):
+    assert w.vault_fingerprint(tmp_path / "nope") == "missing"
+
+
 # --- JSON / stale CLI smoke (subprocess) ---
 
 def test_cli_json_shape(vault: Path):

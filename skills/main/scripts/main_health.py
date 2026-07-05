@@ -1315,23 +1315,34 @@ def apply_fixes(checks: list[CheckResult], dry_run: bool = False) -> list[str]:
                         fixed.append(f"Failed to truncate {target}: {e}")
 
             elif action == "wiki_autofix":
-                # Intelligent gate: skip if throttled within WIKI_AUTOFIX_THROTTLE_DAYS.
-                # Stale-content refresh can't run here (subagent-driven); this only
-                # applies the safe deterministic link-repair subset.
-                sentinel = PROJECT_ROOT / ".claude" / ".artifacts" / "_main" / "wiki_autofix_last_run.txt"
-                throttle_days = 7
-                throttled = False
+                # Needs-based gate: re-run only when the vault changed since the
+                # last fix attempt. Time-based throttles miss new broken links
+                # for up to 7d; the fingerprint flips the day the vault edits.
+                # Stale-content refresh can't run here (subagent-driven); this
+                # only applies the safe deterministic link-repair subset.
+                sentinel = PROJECT_ROOT / ".claude" / ".artifacts" / "_main" / "wiki_autofix_fingerprint.txt"
+                try:
+                    fp_r = subprocess.run(
+                        [sys.executable, target, "--fingerprint"],
+                        capture_output=True, text=True, timeout=30,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    )
+                    current_fp = fp_r.stdout.strip()
+                except Exception as e:
+                    fixed.append(f"Wiki autofix: fingerprint probe failed ({e}) — skipped")
+                    continue
+                if not current_fp:
+                    fixed.append("Wiki autofix: no vault fingerprint — skipped")
+                    continue
+
+                stored_fp = ""
                 if sentinel.exists():
                     try:
-                        last = datetime.fromisoformat(sentinel.read_text(encoding="utf-8").strip())
-                        if (datetime.now() - last).days < throttle_days:
-                            throttled = True
-                            fixed.append(
-                                f"Wiki autofix throttled (last run {last.date()}, <{throttle_days}d ago) — skipped"
-                            )
-                    except (ValueError, OSError):
-                        pass  # corrupt sentinel → run anyway
-                if throttled:
+                        stored_fp = sentinel.read_text(encoding="utf-8").strip()
+                    except OSError:
+                        pass  # corrupt sentinel → run
+                if stored_fp == current_fp and not dry_run:
+                    fixed.append("Wiki autofix: vault unchanged since last run — skipped")
                     continue
 
                 cmd = [sys.executable, target, "--fix"]
@@ -1348,8 +1359,18 @@ def apply_fixes(checks: list[CheckResult], dry_run: bool = False) -> list[str]:
                         if line.startswith("•"):
                             fixed.append(f"  {line}")
                     if not dry_run and r.returncode == 0:
+                        # Re-probe post-fix fingerprint (fixes change mtimes).
+                        try:
+                            fp2 = subprocess.run(
+                                [sys.executable, target, "--fingerprint"],
+                                capture_output=True, text=True, timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                            )
+                            post_fp = fp2.stdout.strip() or current_fp
+                        except Exception:
+                            post_fp = current_fp
                         sentinel.parent.mkdir(parents=True, exist_ok=True)
-                        sentinel.write_text(datetime.now().isoformat(), encoding="utf-8")
+                        sentinel.write_text(post_fp, encoding="utf-8")
                 except Exception as e:
                     fixed.append(f"Failed wiki autofix: {e}")
 

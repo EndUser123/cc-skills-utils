@@ -24,6 +24,7 @@ critical status, "⚠️"/"warning" -> warning, else healthy. Parsed by run_chec
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -197,6 +198,27 @@ def _unique_fuzzy_match(target: str, candidates: list[str], cutoff: float = FUZZ
     return None
 
 
+def vault_fingerprint(vault: Path) -> str:
+    """Stable hash of vault mtime state. Changes on any edit/add/delete.
+
+    Used by /main's needs-based gate: if the fingerprint matches the last
+    fix attempt, no new work exists -> skip. Time-based throttles miss new
+    broken links; this misses nothing.
+    """
+    if not vault.exists():
+        return "missing"
+    h = hashlib.md5()  # ponytail: not security, just a stable digest
+    files = sorted(vault.rglob("*.md"))
+    h.update(str(len(files)).encode())
+    for f in files:
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        h.update(f"{f.relative_to(vault)}|{int(st.st_mtime)}|{st.st_size}".encode())
+    return h.hexdigest()
+
+
 def apply_safe_fixes(vault: Path, dry_run: bool = False) -> list[str]:
     """Repair broken wikilinks via unique fuzzy match. Returns human-readable log lines.
 
@@ -313,9 +335,14 @@ def main() -> int:
     parser.add_argument("--stale", action="store_true", help="List stale pages (oldest first)")
     parser.add_argument("--max-age", type=int, default=DEFAULT_MAX_AGE_DAYS, help=f"Staleness threshold in days (default {DEFAULT_MAX_AGE_DAYS})")
     parser.add_argument("--limit", type=int, default=DEFAULT_STALE_LIMIT, help=f"Cap on stale list / fix candidates (default {DEFAULT_STALE_LIMIT})")
+    parser.add_argument("--fingerprint", action="store_true", help="Print vault mtime fingerprint (needs-based gate signal for /main)")
     args = parser.parse_args()
 
     vault = args.vault or Path(os.environ.get(VAULT_ENV, str(DEFAULT_VAULT)))
+
+    if args.fingerprint:
+        print(vault_fingerprint(vault))
+        return 0
 
     if args.fix:
         fixes = apply_safe_fixes(vault, dry_run=args.dry_run)
