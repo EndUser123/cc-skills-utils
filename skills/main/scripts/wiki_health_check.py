@@ -230,6 +230,17 @@ def _fetch_url(url: str, timeout: float = 5.0) -> bytes:
         return resp.read()
 
 
+def compute_source_hash(url: str, timeout: float = 10.0) -> str:
+    """Fetch a URL once and return its sha256 hex.
+
+    Used to populate the `source_hash` frontmatter field when binding a wiki
+    page to an upstream source. Pairs with check_source_drift(), which
+    re-fetches and compares — so the hash must reflect the content at the
+    last manual review, not the page's own body.
+    """
+    return hashlib.sha256(_fetch_url(url, timeout=timeout)).hexdigest()
+
+
 def check_source_drift(
     vault: Path, timeout: float = 5.0, limit: int = 50
 ) -> list[dict]:
@@ -413,6 +424,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=DEFAULT_STALE_LIMIT, help=f"Cap on stale list / fix candidates (default {DEFAULT_STALE_LIMIT})")
     parser.add_argument("--fingerprint", action="store_true", help="Print vault mtime fingerprint (needs-based gate signal for /main)")
     parser.add_argument("--source-drift", action="store_true", help="Check pages with `source_url` frontmatter for upstream changes")
+    parser.add_argument("--compute-source-hash", metavar="URL", help="Fetch a URL once and print its sha256 — paste into frontmatter as `source_hash` to bind a page for --source-drift")
     parser.add_argument("--source-timeout", type=float, default=5.0, help="Per-URL fetch timeout for --source-drift (default 5.0s)")
     args = parser.parse_args()
 
@@ -420,6 +432,16 @@ def main() -> int:
 
     if args.fingerprint:
         print(vault_fingerprint(vault))
+        return 0
+
+    if args.compute_source_hash:
+        try:
+            h = compute_source_hash(args.compute_source_hash, timeout=args.source_timeout)
+        except Exception as e:
+            print(f"⚠️ fetch failed: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
+        print(f"source_hash: {h}")
+        print(f"# bind to: {args.compute_source_hash}", file=sys.stderr)
         return 0
 
     if args.source_drift:

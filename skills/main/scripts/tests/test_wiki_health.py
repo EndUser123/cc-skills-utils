@@ -251,6 +251,13 @@ def test_source_drift_fetch_failure_graceful(tmp_path: Path, monkeypatch):
     assert drift[0]["reason"].startswith("fetch_failed:ConnectionError")
 
 
+# --- Source hash helper (P3b minimal) ---
+
+def test_compute_source_hash_stable(monkeypatch):
+    monkeypatch.setattr(w, "_fetch_url", lambda url, timeout=10.0: b"upstream content")
+    assert w.compute_source_hash("https://x/y") == hashlib.sha256(b"upstream content").hexdigest()
+
+
 # --- JSON / stale CLI smoke (subprocess) ---
 
 def test_cli_json_shape(vault: Path):
