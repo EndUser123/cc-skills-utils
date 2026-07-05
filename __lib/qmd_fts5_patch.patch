@@ -1,0 +1,36 @@
+--- a/qmd/core/retrieval.py
++++ b/qmd/core/retrieval.py
+@@ -79,7 +79,22 @@ def build_fts5_query(query: str) -> str:
+     Returns:
+         FTS5 MATCH clause
+     """
+-    # simplified implementation：directlyuseQuery text
+-    # TODO: can add more complex query processing (OR, AND, phrase etc)
+-    return query.strip()
++    # FTS5 treats `-` as NOT, `*` as prefix, `()` as grouping, `"` as phrase,
++    # `:` as column filter. A raw query like "two-levers" parses as
++    # "two NOT levers" and returns zero hits. Strip operator punctuation but
++    # preserve Unicode word characters (Latin, CJK, Cyrillic, etc.) so
++    # non-ASCII content survives. Whitespace is collapsed so empty tokens
++    # don't reach MATCH.
++    #
++    # LOCAL FORK (csf-utils) — this file is the source of truth.
++    # If qmd is reinstalled, this patch is lost; re-apply from this file.
++    # Verify:
++    #   python -c "from qmd.core.retrieval import build_fts5_query as f; assert f('two-levers')=='two levers'"
++    import re
++    cleaned = re.sub(r"[^\w\s]", " ", query)
++    cleaned = re.sub(r"\s+", " ", cleaned).strip()
++    return cleaned
+
+# =============================================================================
+# Owner: csf-utils (cc-skills-utils plugin)
+# Pin: qmd==0.1.1 (do NOT auto-upgrade; reinstall loses this patch)
+# Why: upstream qmd-py v0.1.1 ships build_fts5_query as `return query.strip()`
+# with no FTS5 escaping. Hyphenated queries (two-levers) parse as NOT queries
+# and return zero hits. This patch is our permanent owned fix — operations do
+# not depend on the upstream maintainer landing #1064.
+# Re-apply after any `pip install --upgrade qmd` / Python reinstall:
+#   cd <site-packages>/qmd/core && git apply <this file>
+# or hand-edit per the diff above.
+# =============================================================================
