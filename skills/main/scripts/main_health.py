@@ -1165,11 +1165,12 @@ def run_regen_cap_check() -> CheckResult:
 
 # NOTE: Not enhancing run_spec_drift_check() because that scan is scoped to
 # SKILL.md EXECUTION DIRECTIVE blocks; doc_drift covers a different surface
-# (CLAUDE.md prose + settings.json hook commands) where the 2026-07-05
-# plugin-audit-and-fix.py stale-path incident actually lived. Grep of scripts/
-# confirmed no existing CLAUDE.md/settings.json path validator to reuse.
+# (CLAUDE.md/SKILL.md prose + settings.json hook commands) where the
+# 2026-07-05 plugin-audit-and-fix.py stale-path incident actually lived, and
+# where the /recap wrong-module bug (#1175) lived. Grep of scripts/ confirmed
+# no existing CLAUDE.md/SKILL.md/settings.json path validator to reuse.
 def run_doc_drift_check() -> CheckResult:
-    """Verify absolute script paths in CLAUDE.md / settings.json still exist."""
+    """Verify absolute script paths in CLAUDE.md / SKILL.md / settings.json still exist."""
     import re
 
     start = time.time()
@@ -1189,6 +1190,10 @@ def run_doc_drift_check() -> CheckResult:
     plugins_root = Path("P:/packages/.claude-marketplace/plugins")
     if plugins_root.exists():
         targets.extend(plugins_root.rglob("CLAUDE.md"))
+        # SKILL.md prose carries script paths too (e.g. the /recap wrong-module
+        # bug, #1175). Fenced blocks are stripped below so example paths inside
+        # ``` blocks don't false-positive; only prose references are checked.
+        targets.extend(plugins_root.rglob("SKILL.md"))
 
     seen_missing: set[tuple[str, str]] = set()
     for target in targets:
