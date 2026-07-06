@@ -80,7 +80,7 @@ Strict protocols to prevent data loss and session bleed.
 - **Commit Early**: Commit after each discrete unit of work.
 - **Push Immediately**: Prevent local pileup.
 - **Safe Checkout**: Destructive commands (checkout, reset) are blocked if staged changes exist.
-- **Read-only repos are push-guarded**: a clone you don't own (third-party plugin, vendored dependency) must never receive a push. Mark it with `git -C <repo> remote set-url --push origin no_push` — the `no_push` push-URL neuters `git push` locally and instantly, so `/git` sync skips it without a network round-trip or 403. `sync.py` detects the sentinel and reports the repo as `skip (read-only)` instead of attempting the push.
+- **Read-only repos are push-guarded (auto-quarantine)**: a clone you don't own (third-party plugin, vendored dependency) must never receive a push. When a push fails with a permanent permission error (403 / forbidden / permission denied), `sync.py` writes `git -C <repo> remote set-url --push origin no_push` automatically and reports `auto-quarantined (read-only)`. On every future sync the sentinel is honored — `skip (read-only)` with no network round-trip. Transient auth failures (bad credentials, token expired) are NOT quarantined; they get the re-authenticate message. Undo a misfire with `/git --own <relative-path>` (e.g. `/git --own packages/.github_repos/agent-skills`), which clears the sentinel so the repo can be pushed again.
 
 ---
 
