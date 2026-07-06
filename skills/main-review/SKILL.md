@@ -8,12 +8,10 @@ triggers:
   - /main-review
   - /main-checkup
   - /main-verify
-  - /review
 aliases:
   - /main-review
   - /main-checkup
   - /main-verify
-  - /review
 enforcement: advisory
 depends_on_skills: []
 output_format: 2
