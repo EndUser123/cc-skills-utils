@@ -129,6 +129,8 @@ parser.add_argument("--no-resolve", action="store_true")
 parser.add_argument("--repos", default="all")  # all, packages, .claude, mcp
 parser.add_argument("--select", default=None)  # comma-separated indices (e.g., "1,3" or "all")
 parser.add_argument("--dry-run", action="store_true", help="Show what would be committed/pushed without doing it")
+parser.add_argument("--own", default=None,
+                    help="Clear the no_push sentinel on a previously auto-quarantined repo (relative path, e.g. packages/.github_repos/foo)")
 parser.add_argument("worktree_action", nargs="?", default="list")
 parser.add_argument("worktree_name", nargs="?", default=None)
 
@@ -535,14 +537,58 @@ def generate_commit_message_for_repo(repo: RepoInfo) -> str:
 # PUSH FUNCTIONS
 # ============================================================
 
-# Vendored-clone directories — read-only by convention, never pushed. A clone
-# under one of these (e.g. a third-party plugin / browser-harness dep checked
-# straight into the tree) is not ours to push; skipping it here avoids the 403
-# loop and a wasted network round-trip. Own a repo that lives under one? Move
-# it out of the vendored directory, or guard it explicitly with the no_push
-# sentinel on its own remote. Complements the per-repo no_push pushurl check
-# in get_push_target — that one is opt-in per repo; this one is opt-out per dir.
-READ_ONLY_DIR_PATTERNS = (".github_repos/",)
+# Read-only handling is dynamic: when a push fails with a permanent-permission
+# error (403 / forbidden / "permission denied"), the repo is auto-quarantined
+# by writing the no_push push-URL sentinel on its remote. get_push_target()
+# below honors that sentinel on every future sync and reports skip(read-only)
+# without a network round-trip. Undo a misfire with `sync.py --own <rel_path>`.
+#
+# Why not a hand-maintained directory list (the former READ_ONLY_DIR_PATTERNS):
+# it drifted — new vendored clones outside the listed dirs weren't covered,
+# and repos we own inside them were wrongly blocked. Push-failure quarantine
+# works for any remote (GitHub, GitLab, etc.) and is per-repo self-documenting.
+
+# Permanent-permission stderr patterns. Matched case-insensitively against the
+# push stderr. Transient auth failures ("bad credentials", "authentication",
+# "credential", "token expired", "rate limit", "timeout", "connection") are
+# intentionally NOT here — they route to the existing auth branch above and get
+# the re-authenticate message, not quarantine.
+_READ_ONLY_ERROR_RE = re.compile(
+    r"(?i)("
+    r"permission\s+to\s+.+?\s+denied"
+    r"|remote:\s*permission\s+denied"
+    r"|\b403\b"
+    r"|\bforbidden\b"
+    r"|could\s+not\s+(?:find|access)\s+remote"
+    r"|not\s+permitted\s+to"
+    r"|\bread[- ]?only\b"
+    r")"
+)
+
+
+def mark_read_only(repo_path: Path, remote: str) -> bool:
+    """Idempotently mark <remote> on repo_path as read-only by setting its
+    pushurl to the literal "no_push" sentinel. Future `git push` then fails
+    locally and instantly, and get_push_target reports skip(read-only).
+    Returns True on success."""
+    result = run(["git", "remote", "set-url", "--push", remote, "no_push"],
+                 cwd=repo_path, silent=True)
+    return result.returncode == 0
+
+
+def undo_read_only(repo_path: Path, remote: str) -> Tuple[bool, str]:
+    """Escape hatch for --own: clear the no_push pushurl sentinel. Returns
+    (cleared, message). If the sentinel was never set, returns (False, ...)."""
+    check = run(["git", "config", "--get", f"remote.{remote}.pushurl"],
+                cwd=repo_path, silent=True)
+    if check.returncode != 0 or check.stdout.strip() != "no_push":
+        return False, f"no sentinel set on {remote} (already owned)"
+    unset = run(["git", "config", "--unset", f"remote.{remote}.pushurl"],
+                cwd=repo_path, silent=True)
+    if unset.returncode == 0:
+        return True, f"cleared no_push sentinel on {remote}"
+    return False, f"failed to unset pushurl on {remote}: {unset.stderr.strip()}"
+
 
 def get_push_target(repo_path: Path) -> Tuple[Optional[str], Optional[str], str]:
     """
@@ -581,13 +627,6 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
     Push a repo to its remote.
     Returns: (success, message)
     """
-    # Directory-level read-only guard (see READ_ONLY_DIR_PATTERNS). Skips before
-    # get_push_target so a vendored clone never reaches the network. The no_push
-    # pushurl sentinel handles read-only repos living OUTSIDE these dirs.
-    rel = repo.relative_path.replace("\\", "/")
-    if any(p in rel + "/" for p in READ_ONLY_DIR_PATTERNS):
-        return False, f"skip (read-only dir: {rel})"
-
     remote, branch, remote_url = get_push_target(repo.path)
 
     if not remote or not branch:
@@ -648,6 +687,17 @@ def push_repo(repo: RepoInfo, silent: bool = False) -> Tuple[bool, str]:
             action = f"Push rejected - remote has commits that local doesn't. Pull first in {repo.path}"
         elif "not found" in error.lower():
             action = f"Remote branch {branch} not found. Create it with 'git push {remote} {branch}'"
+        elif _READ_ONLY_ERROR_RE.search(error):
+            # Permanent permission denial — we don't own this remote. Auto-quarantine
+            # by writing the no_push push-URL sentinel so future syncs skip locally
+            # instead of repeating the 403. Transient auth failures are caught above.
+            rel = repo.relative_path.replace("\\", "/")
+            if mark_read_only(repo.path, remote):
+                return False, (
+                    f"auto-quarantined (read-only): {error[:140]}. "
+                    f"Sentinel written; undo with: /git --own {rel}"
+                )
+            action = f"Permission denied and could not auto-quarantine. Run 'git remote set-url --push {remote} no_push' in {repo.path}"
         else:
             action = f"Run 'git push' manually in {repo.path} to diagnose"
         return False, f"{error}. {action}"
@@ -1401,4 +1451,27 @@ if __name__ == "__main__":
     REPOS_FILTER = args.repos
     SELECT_REPOS = args.select
     DRY_RUN = getattr(args, 'dry_run', False)
+
+    if getattr(args, 'own', None):
+        # Escape hatch: clear the no_push sentinel so a previously
+        # auto-quarantined repo can be pushed again.
+        own_arg = args.own.strip().strip('"').strip("'")
+        candidate = Path(own_arg)
+        if not candidate.is_absolute():
+            candidate = (MAIN_ROOT / own_arg).resolve()
+        else:
+            candidate = candidate.resolve()
+        if not candidate.exists():
+            print(f"ERROR: path not found: {candidate}", file=sys.stderr)
+            sys.exit(2)
+        remote_result = run(["git", "remote"], cwd=candidate, silent=True)
+        if remote_result.returncode != 0 or not remote_result.stdout.strip():
+            print(f"ERROR: no git remote in {candidate}", file=sys.stderr)
+            sys.exit(2)
+        remote = remote_result.stdout.strip().split("\n")[0]
+        cleared, msg = undo_read_only(candidate, remote)
+        status = "cleared" if cleared else "no-op"
+        print(f"[{status}] {candidate} -> {msg}")
+        sys.exit(0)
+
     main()
