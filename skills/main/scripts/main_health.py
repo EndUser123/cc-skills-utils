@@ -1211,6 +1211,20 @@ def run_doc_drift_check() -> CheckResult:
             # Skip glob/placeholder patterns and inline-code examples
             if any(tok in path_str for tok in ("*", "?", "<", ">", "{", "}")):
                 continue
+            # Skip regex literals in quoted matcher strings (e.g. SKILL.md
+            # patterns like '^python\s+P://.../sync/.py(?:\s|$)'). A real path
+            # reference is bordered by whitespace/quotes/sentence punctuation;
+            # a regex literal has regex metacharacters glued to the path with
+            # no whitespace gap — \s+/\d+/\b/^ before the drive letter, or
+            # ( / (?: / (?= / (?! / \b / $ after the extension. Legitimate
+            # .py(args) isn't valid shell/Python syntax, so a glued '(' is a
+            # near-perfect regex signal.
+            pre = prose[max(0, match.start() - 3):match.start()]
+            post = prose[match.end():match.end() + 3]
+            if re.search(r"(?:\\[sdwb]\[?|\^)[+*?]?$", pre) or re.match(
+                r"\((?:\?:|\?=|\?!|\?P<)|\\b|\$", post
+            ):
+                continue
             if Path(path_str).exists():
                 continue
             key = (str(target), path_str)
