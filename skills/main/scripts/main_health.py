@@ -1239,6 +1239,59 @@ def run_doc_drift_check() -> CheckResult:
                 rel = target.name
             details.append(f"{rel}: {path_str} → NOT FOUND")
 
+    # --- Phase 2: command-reference drift (catch zombies like /complexity) ---
+    # Scan SKILL.md prose for /command tokens. Valid if registered as a skill
+    # (frontmatter name:) or a commands/<name>/ dir. Fenced blocks, inline
+    # backtick code, and URLs are excluded to avoid FP on examples.
+    _plugins_root = Path("P:/packages/.claude-marketplace/plugins")
+    _valid_cmds: set[str] = set()
+    if _plugins_root.exists():
+        for _skill_md in _plugins_root.rglob("SKILL.md"):
+            try:
+                _txt = _skill_md.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            _m = re.search(r"^name:\s*(\S+)", _txt, re.MULTILINE)
+            if _m:
+                _valid_cmds.add(_m.group(1))
+        for _cmd_dir in _plugins_root.rglob("commands"):
+            if _cmd_dir.is_dir():
+                for _child in _cmd_dir.iterdir():
+                    if _child.is_dir() and _child.name not in ("__pycache__",):
+                        _valid_cmds.add(_child.name)
+
+    _seen_zombie: set[tuple[str, str]] = set()
+    _zombie_count = 0
+    _cmd_ref_re = re.compile(r"(?<![`/\\])/([a-zA-Z][a-zA-Z0-9_-]{0,30})")
+    for _target in targets:
+        if not _target.exists():
+            continue
+        try:
+            _content = _target.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        _prose = re.sub(r"^[ \t]*(```|~~~).*?\n[ \t]*\1.*$", "", _content, flags=re.MULTILINE | re.DOTALL)
+        _prose = re.sub(r"`[^`]+`", "", _prose)
+        _prose = re.sub(r"https?://\S+", "", _prose)
+        for _match in _cmd_ref_re.finditer(_prose):
+            _cmd = _match.group(1)
+            if _cmd in _valid_cmds:
+                continue
+            try:
+                _rel = str(_target.relative_to(Path("P:/"))).replace("\\", "/")
+            except ValueError:
+                _rel = _target.name
+            _key = (_rel, _cmd)
+            if _key in _seen_zombie:
+                continue
+            _seen_zombie.add(_key)
+            _zombie_count += 1
+            details.append(f"{_rel}: /{_cmd} → no registered command or skill")
+
+    if _zombie_count > 0:
+        missing_count += _zombie_count
+
+
     status = "warning" if missing_count > 0 else "healthy"
     message = (
         f"{missing_count} stale doc path(s)" if missing_count > 0
