@@ -2214,281 +2214,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--inventory", action="store_true", help="Print the unified hook entry-point inventory (what hooks run per event) and exit")
     parser.add_argument("--inventory-event", metavar="EVENT", help="Limit --inventory to one event (e.g. Stop, PreToolUse)")
     args = parser.parse_args(argv[1:])
-
     if args.inventory or args.inventory_event:
-        root = Path(args.packages_root) if args.packages_root else Path(__file__).resolve().parent.parent.parent
-        print(render_hook_inventory(build_hook_inventory(root), args.inventory_event))
-        return 0
+        return _cmd_inventory(args)
     script_path = __file__ if "__file__" in dir() else "plugin-audit-and-fix.py"
-
-    # Source packages scan mode: scan P:\\\\packages/ directly
     if args.packages_root:
-        packages_dir = Path(args.packages_root)
-        if not packages_dir.exists():
-            print(f"Error: {packages_dir} does not exist.", file=sys.stderr)
-            return 1
-        C = C_CYAN
-        print(f"{C}=== Source Packages Audit ==={C}\\nRoot: {packages_dir}")
-
-        # Discover plugin dirs (must have .claude-plugin/plugin.json, not excluded)
-        plugin_dirs: list[Path] = []
-        excluded_dirs: list[str] = []
-        for entry in sorted(packages_dir.iterdir()):
-            if not entry.is_dir() or entry.name.startswith(".") or entry.name.startswith("__"):
-                continue
-            if not (entry / ".claude-plugin" / "plugin.json").exists():
-                continue
-            if (entry / ".marketplace-exclude").exists():
-                excluded_dirs.append(entry.name)
-                continue
-            plugin_dirs.append(entry)
-
-        print(f"Found {len(plugin_dirs)} plugin(s)")
-        for p in plugin_dirs:
-            print(f"  {p.name}")
-        if excluded_dirs:
-            print(f"Excluded ({len(excluded_dirs)}, have .marketplace-exclude):")
-            for e in excluded_dirs:
-                print(f"  {e}")
-
-        # Check which are missing from marketplace
-        mp_root = _detect_marketplace_root(script_path, args.marketplace_root)
-        # Fallback: derive marketplace from packages root directly
-        if not mp_root:
-            mp_dir = packages_dir / ".claude-marketplace"
-            if mp_dir.exists():
-                mp_root = str(mp_dir)
-        mp_plugins_dir = Path(mp_root) / "plugins" if mp_root else None
-        if mp_plugins_dir and mp_plugins_dir.exists():
-            mp_names = {p.name for p in mp_plugins_dir.iterdir() if p.is_dir() and not p.name.startswith(".")}
-            missing = [p.name for p in plugin_dirs if p.name not in mp_names]
-            if missing:
-                print(f"\n{C_YELLOW}Missing from marketplace ({len(missing)}):{C_RESET}")
-                for m in missing:
-                    print(f"  {m} — run /cc-skills-utils:plugin-installer add {m}")
-            else:
-                print(f"\n{C_GREEN}All source packages have marketplace junctions.{C_RESET}")
-
-            # Check for stale marketplace junctions (target deleted but junction remains)
-            stale_junctions = []
-            source_names = {p.name for p in plugin_dirs}
-            for mp_entry in mp_plugins_dir.iterdir():
-                if mp_entry.name.startswith(".") or not mp_entry.is_dir():
-                    continue
-                if mp_entry.name in source_names:
-                    continue  # source exists, not stale
-                # Check if it's a junction/symlink pointing to a deleted target
-                if mp_entry.is_symlink():
-                    try:
-                        target = os.readlink(str(mp_entry))
-                        if not Path(target).exists():
-                            stale_junctions.append((mp_entry.name, target))
-                    except OSError:
-                        pass
-            if stale_junctions:
-                print(f"\n{C_YELLOW}Stale marketplace junctions ({len(stale_junctions)}):{C_RESET}")
-                for name, target in stale_junctions:
-                    print(f"  {name} → {target} (target deleted)")
-                if args.auto_fix:
-                    import shutil
-                    for name, target in stale_junctions:
-                        junction_path = mp_plugins_dir / name
-                        try:
-                            shutil.rmtree(str(junction_path))
-                            print(f"  {C_GREEN}Removed stale junction: {name}{C_RESET}")
-                        except OSError as e:
-                            print(f"  {C_RED}Failed to remove {name}: {e}{C_RESET}")
-
-        # Audit each source plugin
-        print("\nAuditing source packages...")
-        all_results = []
-        for plugin_dir in plugin_dirs:
-            if args.plugins and plugin_dir.name != args.plugins:
-                continue
-            # Create a temporary plugins_dir-like scan for just this plugin
-            results = audit_plugins(packages_dir, mp_root or str(packages_dir), plugin_filter=plugin_dir.name)
-            all_results.extend(results)
-
-        error_count = sum(len(r["errors"]) for r in all_results)
-        warning_count = sum(len(r["warnings"]) for r in all_results)
-        if error_count > 0 or warning_count > 0:
-            print(f"{C_RED}Found {error_count} error(s), {warning_count} warning(s){C_RESET}")
-            for r in all_results:
-                for e in r["errors"]: print(f"  [ERROR] {r['plugin']}: {e}")
-                for w in r["warnings"]: print(f"  [WARNING] {r['plugin']}: {w}")
-        else:
-            print(f"{C_GREEN}All source plugins OK.{C_RESET}")
-
-        settings_path = Path(os.path.expanduser("~/.claude/settings.json"))
-        settings_findings = audit_settings_hooks(settings_path)
-        if settings_findings:
-            print(f"{C_RED}Found {len(settings_findings)} settings hook error(s):{C_RESET}")
-            for finding in settings_findings:
-                print(f"  [ERROR] {finding['file']}: {finding['error']}")
-
-        # Skill frontmatter audit: name field vs directory name
-        print("\nChecking SKILL.md frontmatter name fields...")
-        skill_fm_findings = audit_skill_frontmatter(packages_dir)
-        plugin_names = {p.name for p in plugin_dirs}
-        skill_fm_findings = [f for f in skill_fm_findings if f["plugin"] in plugin_names]
-        missing_name = sum(1 for f in skill_fm_findings if f["type"] == "missing_name_field")
-        name_mismatch = sum(1 for f in skill_fm_findings if f["type"] == "name_mismatch")
-        if skill_fm_findings:
-            print(f"{C_RED}Found {missing_name} missing name field, {name_mismatch} name mismatch(s):{C_RESET}")
-            for f in skill_fm_findings:
-                t = f["type"]
-                if t == "missing_name_field":
-                    print(f"  [{f['plugin']}] {f['skill']}: {f['issue']}")
-                elif t == "name_mismatch":
-                    print(f"  [{f['plugin']}] {f['skill']}: name='{f['frontmatter_name']}' vs dir='{f['directory_name']}' — {f['fix']}")
-        else:
-            print(f"{C_GREEN}All SKILL.md name fields match their directories.{C_RESET}")
-
-        # Auto-fix skill frontmatter
-        if args.auto_fix and skill_fm_findings:
-            fix_results = fix_skill_frontmatter(packages_dir)
-            fixed_count = sum(1 for r in fix_results if r.get("fixed"))
-            if fixed_count:
-                print(f"{C_GREEN}Fixed SKILL.md name fields in {fixed_count} skill(s).{C_RESET}")
-                for r in fix_results:
-                    if not r.get("fixed"):
-                        continue
-                    for action in r["actions"]:
-                        print(f"  [{r['plugin']}] {action}")
-
-        # Registration state check (installed + enabled)
-        if mp_root:
-            print("\nChecking plugin registration state...")
-            reg_findings = audit_registration_state(mp_root)
-            reg_findings = [f for f in reg_findings if f["plugin"] in {p.name for p in plugin_dirs}]
-            if reg_findings:
-                not_installed = [f for f in reg_findings if f["type"] == "not_installed"]
-                not_enabled = [f for f in reg_findings if f["type"] == "not_enabled"]
-                print(f"{C_YELLOW}Found {len(not_installed)} not installed, {len(not_enabled)} not enabled:{C_RESET}")
-                for f in reg_findings:
-                    tag = {"not_installed": "NOT INSTALLED", "not_enabled": "NOT ENABLED"}[f["type"]]
-                    print(f"  {C_RED}[{tag}]{C_RESET} {f['plugin']}: {f['issue']}")
-                    print(f"    Fix: {f['fix']}")
-            else:
-                print(f"{C_GREEN}All plugins installed and enabled.{C_RESET}")
-
-        # Drift check
-        print("\nChecking source vs cache drift...")
-        drift_findings = audit_source_cache_drift(packages_dir)
-        # Filter to only real plugins
-        plugin_names = {p.name for p in plugin_dirs}
-        drift_findings = [f for f in drift_findings if f["plugin"] in plugin_names]
-        stale_count = sum(1 for f in drift_findings if f["type"] == "stale_version_dirs")
-        modified_count = sum(1 for f in drift_findings if f["type"] == "source_modified")
-        cache_only_count = sum(1 for f in drift_findings if f["type"] == "cache_only")
-        if drift_findings:
-            print(f"{C_YELLOW}Found {stale_count} stale, {modified_count} drift, {cache_only_count} cache-only:{C_RESET}")
-            for f in drift_findings:
-                t = f["type"]
-                if t == "stale_version_dirs":
-                    print(f"  {f['plugin']}: STALE {f['stale_versions']}")
-                elif t == "source_modified":
-                    print(f"  {f['plugin']} ({f['cache_version']}): {f['drift_count']} modified")
-                elif t == "cache_only":
-                    print(f"  {f['plugin']}: {f['cache_only_count']} cache-only")
-        else:
-            print(f"{C_GREEN}Cache is in sync with source.{C_RESET}")
-
-        path_fix_count = 0
-        if args.auto_fix and mp_root:
-            fix_results = auto_fix_plugins(packages_dir, args.delete_hooks)
-            fix_count = sum(len(r["actions"]) for r in fix_results if r.get("plugin") in plugin_names)
-            if fix_count:
-                print(f"{C_GREEN}Fixed {fix_count} issue(s).{C_RESET}")
-                for r in fix_results:
-                    if r.get("plugin") not in plugin_names:
-                        continue
-                    for action in r["actions"]:
-                        print(f"  [{r['plugin']}] {action}")
-
-            # Auto-fix hardcoded paths (on by default in --packages-root mode)
-            if not args.no_fix_paths:
-                path_results = fix_hardcoded_paths(packages_dir)
-                path_fix_count = sum(len(r["actions"]) for r in path_results if r.get("fixed"))
-                if path_fix_count:
-                    print(f"{C_GREEN}Fixed hardcoded paths in {path_fix_count} file(s).{C_RESET}")
-                    for r in path_results:
-                        if not r.get("fixed"):
-                            continue
-                        for action in r["actions"]:
-                            print(f"  [{r['plugin']}] {action}")
-
-            # Auto-fix: git artifacts (.pytest_cache, __pycache__, etc.)
-            git_results = auto_fix_git_artifacts(packages_dir)
-            git_fix_count = sum(len(r["actions"]) for r in git_results if r.get("plugin") in plugin_names)
-            if git_fix_count > 0:
-                print(f"{C_GREEN}Fixed .gitignore in {git_fix_count} plugin(s).{C_RESET}")
-                for r in git_results:
-                    if r.get("plugin") not in plugin_names:
-                        continue
-                    for action in r["actions"]:
-                        print(f"  [{r['plugin']}] {action}")
-
-            # Auto-fix: stale version dirs + source sync
-            # Re-check drift AFTER path fixes — path fixes modify source, so the
-            # original drift_findings are stale.
-            import shutil
-            import subprocess
-            path_fixes = path_fix_count if not args.no_fix_paths else 0
-            if path_fixes > 0:
-                drift_findings = audit_source_cache_drift(packages_dir)
-                drift_findings = [f for f in drift_findings if f["plugin"] in plugin_names]
-            synced = []
-            stale_deleted = []
-            for f in drift_findings:
-                t = f["type"]
-                pkg = f["plugin"]
-                cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
-                if t == "stale_version_dirs":
-                    for stale_ver in f["stale_versions"]:
-                        stale_path = cache_root / pkg / stale_ver
-                        if stale_path.exists():
-                            _rmtree_force(stale_path)
-                            stale_deleted.append(f"{pkg}/{stale_ver}")
-                            print(f"  {C_RED}Deleted stale: {pkg}/{stale_ver}{C_RESET}")
-                elif t == "source_modified":
-                    src = packages_dir / pkg
-                    version_dir = cache_root / pkg / f["cache_version"]
-                    if src.exists() and version_dir.exists():
-                        sync_stats = bidir_sync(src, version_dir)
-                        if sync_stats["errors"]:
-                            for err in sync_stats["errors"]:
-                                print(f"  {C_RED}Sync error {pkg}: {err}{C_RESET}")
-                        parts = []
-                        if sync_stats["src_to_cache"]:
-                            parts.append(f"src→cache: {sync_stats['src_to_cache']}")
-                        if sync_stats["cache_to_src"]:
-                            parts.append(f"cache→src: {sync_stats['cache_to_src']}")
-                        if sync_stats["conflicts"]:
-                            parts.append(f"conflicts: {len(sync_stats['conflicts'])} (review manually)")
-                        if sync_stats["skipped"]:
-                            parts.append(f"cache-only skipped: {sync_stats['skipped']}")
-                        if parts:
-                            print(f"  {C_GREEN}Synced: {pkg} ({', '.join(parts)}){C_RESET}")
-                            synced.append(pkg)
-                        else:
-                            print(f"  {C_GREEN}Synced: {pkg} (no changes needed){C_RESET}")
-                            synced.append(pkg)
-                elif t == "cache_only":
-                    print(f"  {C_YELLOW}Cache-only files in {pkg}: {f['cache_only_count']} file(s) — likely stale deleted content{C_RESET}")
-
-            if stale_deleted:
-                print(f"\n{C_GREEN}Deleted {len(stale_deleted)} stale version dir(s): {stale_deleted}{C_RESET}")
-
-        # Only return non-zero for actionable errors (manifest issues), not warnings
-        actionable_errors = sum(
-            len(r["errors"]) for r in all_results
-            if r.get("plugin") in {p.name for p in plugin_dirs}
-            and any("plugin.json" in e or "marketplace.json" in e for e in r.get("errors", []))
-        )
-        actionable_errors += len(settings_findings)
-        return actionable_errors
-
+        return _cmd_packages_root(args, script_path)
     resolved_root = args.marketplace_root or os.environ.get("CLAUDE_MARKETPLACE_ROOT")
     mp_root = _detect_marketplace_root(script_path, resolved_root)
     if not mp_root:
@@ -2498,210 +2228,507 @@ def main(argv: list[str]) -> int:
     C = C_CYAN
     print(f"{C}=== Claude Code Plugin Audit & Fix ==={C}\\nMarketplace: {mp_root}")
     if args.scan_paths:
-        print("Scanning for hardcoded paths...")
-        findings = scan_source_paths(plugins_dir)
-        if findings:
-            print(f"{C_RED}Found {len(findings)} hardcoded path(s):{C_RESET}")
-            for f in findings:
-                print(f"  [{f['plugin']}] {f['file']}: {f['issue']}")
-        else:
-            print(f"{C_GREEN}No hardcoded paths found.{C_RESET}")
-        return 0
+        return _cmd_scan_paths(plugins_dir)
     if args.scan_name_conflicts:
-        print("Scanning for name conflicts across skill and command directories...")
-        conflict_results = audit_name_conflicts()
-        if conflict_results:
-            print(f"{C_RED}Found {len(conflict_results)} name conflict(s):{C_RESET}")
-            for c in conflict_results:
-                print(f"  [{c['type']}] {c['name']}: {c['issue']}")
-        else:
-            print(f"{C_GREEN}No name conflicts found.{C_RESET}")
-        return 0
+        return _cmd_scan_name_conflicts()
     if args.bump:
-        with _bump_lock() as locked:
-            if not locked:
-                print(f"  {C_RED}ERROR: could not acquire bump lock within {_BUMP_LOCK_TIMEOUT}s — another terminal is bumping. Retry.{C_RESET}")
-                return 1
-            bump_result = bump_version(plugins_dir, mp_root, args.bump)
-            if bump_result["errors"]:
-                for e in bump_result["errors"]:
-                    print(f"  {C_RED}ERROR: {e}{C_RESET}")
-                return 1
-            for a in bump_result["actions"]:
-                print(f"  {C_GREEN}{a}{C_RESET}")
-
-            # Post-bump: create new cache dir, remove old version dir
-            import shutil
-            import subprocess
-            from datetime import datetime, timezone
-            pkg_name = args.bump
-            cache_root = _cache_dir_for_plugin(pkg_name)
-            old_ver = bump_result["old_version"]
-            new_ver = bump_result["new_version"]
-            cache_dir = cache_root / pkg_name
-            plugin_key = f"{pkg_name}@{_resolve_plugin_marketplace(pkg_name)}"
-
-            # 1. Update installed_plugins.json so Claude Code knows about new version
-            installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
-            if installed_path.exists():
-                ok, installed_data = _load_json(installed_path)
-                if ok and installed_data is not None and "plugins" in installed_data:
-                    if plugin_key in installed_data["plugins"]:
-                        installed_data["plugins"][plugin_key][0]["version"] = new_ver
-                        installed_data["plugins"][plugin_key][0]["installPath"] = str(cache_dir / new_ver)
-                        installed_data["plugins"][plugin_key][0]["lastUpdated"] = datetime.now(
-                            timezone.utc
-                        ).isoformat().replace("+00:00", "Z").replace("Z", "+00:00")
-                        _save_json(installed_path, installed_data)
-                        print(f"  {C_GREEN}Updated installed_plugins.json: {pkg_name}@{old_ver} → {new_ver} at {cache_dir / new_ver}{C_RESET}")
-
-            if not cache_dir.exists():
-                # Plugin registered in installed_plugins.json but no cache dir — create it
-                cache_dir.mkdir(parents=True, exist_ok=True)
-
-            # Create new version dir by syncing from source
-            src = plugins_dir / pkg_name
-            new_cache = cache_dir / new_ver
-            if src.exists():
-                new_cache.mkdir(parents=True, exist_ok=True)
-                sync_stats = bidir_sync(src, new_cache)
-                if sync_stats["errors"]:
-                    for err in sync_stats["errors"]:
-                        print(f"  {C_YELLOW}Cache sync error: {err}{C_RESET}")
-                print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
-
-            # Remove ALL stale version dirs — runtime only loads the version in
-            # installed_plugins.json, so every other version dir is debt. Only
-            # ever keeping the new version prevents the accumulation the audit
-            # flags as "stale version dirs".
-            removed_versions = []
-            if cache_dir.exists():
-                for vdir in cache_dir.iterdir():
-                    if vdir.is_dir() and vdir.name != new_ver:
-                        _rmtree_force(vdir)
-                        removed_versions.append(vdir.name)
-            if removed_versions:
-                print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{', '.join(sorted(removed_versions))}{C_RESET}")
-
-            # Post-bump: update marketplace index and verify zero drift
-            print(f"\n{C_CYAN}=== Marketplace Sync ==={C_RESET}")
-            mp_update = subprocess.run(
-                ["claude", "plugin", "marketplace", "update", "local"],
-                capture_output=True, text=True, timeout=30,
-            )
-            if mp_update.returncode == 0:
-                print(f"  {C_GREEN}Marketplace updated.{C_RESET}")
-            else:
-                print(f"  {C_YELLOW}Marketplace update failed: {mp_update.stderr.strip() or mp_update.stdout.strip()}{C_RESET}")
-
-            # Verify zero drift for the bumped plugin; re-sync then RE-VERIFY.
-            # Without the re-audit, a persistent drift (file-locked, permission
-            # error, bidir_sync clobber) would print "Re-synced" and return 0,
-            # masking the failure — see memory plugin_bidir_sync_source_wins.md.
-            _drift_root = plugins_dir.parent if plugins_dir.name == "plugins" else plugins_dir
-            drift = audit_source_cache_drift(_drift_root)
-            drift = [f for f in drift if f["plugin"] == pkg_name and f["type"] == "source_modified"]
-            if drift:
-                print(f"  {C_YELLOW}Drift detected after bump — re-syncing...{C_RESET}")
-                resync_errors: list[str] = []
-                for f in drift:
-                    version_dir = cache_root / pkg_name / f["cache_version"]
-                    src_path = plugins_dir / pkg_name
-                    if src_path.exists() and version_dir.exists():
-                        stats = bidir_sync(src_path, version_dir)
-                        if stats.get("errors"):
-                            resync_errors.extend(stats["errors"])
-                        print(f"  {C_GREEN}Re-synced {pkg_name}.{C_RESET}")
-                # ponytail: the re-audit is the load-bearing check — bidir_sync
-                # returning no errors does not prove bytes match (known clobber
-                # failure mode). Only a clean second audit certifies zero drift.
-                second_drift = [
-                    f for f in audit_source_cache_drift(_drift_root)
-                    if f["plugin"] == pkg_name and f["type"] == "source_modified"
-                ]
-                if second_drift or resync_errors:
-                    print(
-                        f"  {C_RED}PERSISTENT DRIFT after re-sync for {pkg_name}: "
-                        f"{len(second_drift)} file(s) still differ, "
-                        f"{len(resync_errors)} sync error(s).{C_RESET}",
-                        file=sys.stderr,
-                    )
-                    for err in resync_errors:
-                        print(f"  {C_RED}  sync error: {err}{C_RESET}", file=sys.stderr)
-                    return 1
-                print(f"  {C_GREEN}Zero drift confirmed for {pkg_name} after re-sync.{C_RESET}")
-            else:
-                print(f"  {C_GREEN}Zero drift confirmed for {pkg_name}.{C_RESET}")
-
-            print(f"\n{C_CYAN}=== Done ==={C_RESET}")
-            print(f"  Run {C_CYAN}/reload-plugins{C_RESET} to activate {pkg_name} {new_ver}.")
-            return 0
+        return _cmd_bump(args, plugins_dir, mp_root)
     if args.validate:
-        print("Validating plugins...")
-        failed = 0
-        for plugin in sorted(plugins_dir.iterdir()):
-            if plugin.name.startswith("."):
-                continue
-            if args.plugins and plugin.name != args.plugins:
-                continue
-            plugin_dir = str(plugin)
-            result = __import__("subprocess").run(
-                ["claude", "plugin", "validate", plugin_dir],
-                capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                print(f"  {C_GREEN}✓ {plugin.name}{C_RESET}")
-            else:
-                print(f"  {C_RED}✗ {plugin.name}{C_RESET}")
-                failed += 1
-        if failed > 0:
-            print(f"{C_RED}{failed} plugin(s) failed validation{C_RESET}")
-        else:
-            print(f"{C_GREEN}All plugins validated{C_RESET}")
-        return failed
+        return _cmd_validate(args, plugins_dir)
     if args.drift:
-        findings = audit_source_cache_drift(plugins_dir)
-        stale = [f for f in findings if f["type"] == "stale_version_dirs"]
-        modified = [f for f in findings if f["type"] == "source_modified"]
-        cache_only = [f for f in findings if f["type"] == "cache_only"]
-        if stale:
-            print(f"{C_YELLOW}Stale version dirs:{C_RESET}")
-            for f in stale:
-                print(f"  {f['plugin']}: stale {[d for d in f['stale_versions']]}")
+        return _cmd_drift(plugins_dir)
+    return _cmd_audit_default(args, plugins_dir, mp_root)
+
+def _cmd_inventory(args):
+    root = Path(args.packages_root) if args.packages_root else Path(__file__).resolve().parent.parent.parent
+    print(render_hook_inventory(build_hook_inventory(root), args.inventory_event))
+    return 0
+
+
+def _cmd_packages_root(args, script_path):
+    packages_dir = Path(args.packages_root)
+    if not packages_dir.exists():
+        print(f"Error: {packages_dir} does not exist.", file=sys.stderr)
+        return 1
+    C = C_CYAN
+    print(f"{C}=== Source Packages Audit ==={C}\\nRoot: {packages_dir}")
+
+    # Discover plugin dirs (must have .claude-plugin/plugin.json, not excluded)
+    plugin_dirs: list[Path] = []
+    excluded_dirs: list[str] = []
+    for entry in sorted(packages_dir.iterdir()):
+        if not entry.is_dir() or entry.name.startswith(".") or entry.name.startswith("__"):
+            continue
+        if not (entry / ".claude-plugin" / "plugin.json").exists():
+            continue
+        if (entry / ".marketplace-exclude").exists():
+            excluded_dirs.append(entry.name)
+            continue
+        plugin_dirs.append(entry)
+
+    print(f"Found {len(plugin_dirs)} plugin(s)")
+    for p in plugin_dirs:
+        print(f"  {p.name}")
+    if excluded_dirs:
+        print(f"Excluded ({len(excluded_dirs)}, have .marketplace-exclude):")
+        for e in excluded_dirs:
+            print(f"  {e}")
+
+    # Check which are missing from marketplace
+    mp_root = _detect_marketplace_root(script_path, args.marketplace_root)
+    # Fallback: derive marketplace from packages root directly
+    if not mp_root:
+        mp_dir = packages_dir / ".claude-marketplace"
+        if mp_dir.exists():
+            mp_root = str(mp_dir)
+    mp_plugins_dir = Path(mp_root) / "plugins" if mp_root else None
+    if mp_plugins_dir and mp_plugins_dir.exists():
+        mp_names = {p.name for p in mp_plugins_dir.iterdir() if p.is_dir() and not p.name.startswith(".")}
+        missing = [p.name for p in plugin_dirs if p.name not in mp_names]
+        if missing:
+            print(f"\n{C_YELLOW}Missing from marketplace ({len(missing)}):{C_RESET}")
+            for m in missing:
+                print(f"  {m} — run /cc-skills-utils:plugin-installer add {m}")
         else:
-            print("No stale version dirs.")
-        if modified:
-            print(f"{C_YELLOW}Source drift:{C_RESET}")
-            for f in modified:
-                sample = ", ".join(f["sample_files"][:3])
-                extra = f" (+{f['drift_count'] - len(f['sample_files'])} more)" if f["drift_count"] > len(f["sample_files"]) else ""
-                print(f"  {f['plugin']} ({f['cache_version']}): {f['drift_count']} file(s) modified — {sample}{extra}")
+            print(f"\n{C_GREEN}All source packages have marketplace junctions.{C_RESET}")
+
+        # Check for stale marketplace junctions (target deleted but junction remains)
+        stale_junctions = []
+        source_names = {p.name for p in plugin_dirs}
+        for mp_entry in mp_plugins_dir.iterdir():
+            if mp_entry.name.startswith(".") or not mp_entry.is_dir():
+                continue
+            if mp_entry.name in source_names:
+                continue  # source exists, not stale
+            # Check if it's a junction/symlink pointing to a deleted target
+            if mp_entry.is_symlink():
+                try:
+                    target = os.readlink(str(mp_entry))
+                    if not Path(target).exists():
+                        stale_junctions.append((mp_entry.name, target))
+                except OSError:
+                    pass
+        if stale_junctions:
+            print(f"\n{C_YELLOW}Stale marketplace junctions ({len(stale_junctions)}):{C_RESET}")
+            for name, target in stale_junctions:
+                print(f"  {name} → {target} (target deleted)")
+            if args.auto_fix:
+                import shutil
+                for name, target in stale_junctions:
+                    junction_path = mp_plugins_dir / name
+                    try:
+                        shutil.rmtree(str(junction_path))
+                        print(f"  {C_GREEN}Removed stale junction: {name}{C_RESET}")
+                    except OSError as e:
+                        print(f"  {C_RED}Failed to remove {name}: {e}{C_RESET}")
+
+    # Audit each source plugin
+    print("\nAuditing source packages...")
+    all_results = []
+    for plugin_dir in plugin_dirs:
+        if args.plugins and plugin_dir.name != args.plugins:
+            continue
+        # Create a temporary plugins_dir-like scan for just this plugin
+        results = audit_plugins(packages_dir, mp_root or str(packages_dir), plugin_filter=plugin_dir.name)
+        all_results.extend(results)
+
+    error_count = sum(len(r["errors"]) for r in all_results)
+    warning_count = sum(len(r["warnings"]) for r in all_results)
+    if error_count > 0 or warning_count > 0:
+        print(f"{C_RED}Found {error_count} error(s), {warning_count} warning(s){C_RESET}")
+        for r in all_results:
+            for e in r["errors"]: print(f"  [ERROR] {r['plugin']}: {e}")
+            for w in r["warnings"]: print(f"  [WARNING] {r['plugin']}: {w}")
+    else:
+        print(f"{C_GREEN}All source plugins OK.{C_RESET}")
+
+    settings_path = Path(os.path.expanduser("~/.claude/settings.json"))
+    settings_findings = audit_settings_hooks(settings_path)
+    if settings_findings:
+        print(f"{C_RED}Found {len(settings_findings)} settings hook error(s):{C_RESET}")
+        for finding in settings_findings:
+            print(f"  [ERROR] {finding['file']}: {finding['error']}")
+
+    # Skill frontmatter audit: name field vs directory name
+    print("\nChecking SKILL.md frontmatter name fields...")
+    skill_fm_findings = audit_skill_frontmatter(packages_dir)
+    plugin_names = {p.name for p in plugin_dirs}
+    skill_fm_findings = [f for f in skill_fm_findings if f["plugin"] in plugin_names]
+    missing_name = sum(1 for f in skill_fm_findings if f["type"] == "missing_name_field")
+    name_mismatch = sum(1 for f in skill_fm_findings if f["type"] == "name_mismatch")
+    if skill_fm_findings:
+        print(f"{C_RED}Found {missing_name} missing name field, {name_mismatch} name mismatch(s):{C_RESET}")
+        for f in skill_fm_findings:
+            t = f["type"]
+            if t == "missing_name_field":
+                print(f"  [{f['plugin']}] {f['skill']}: {f['issue']}")
+            elif t == "name_mismatch":
+                print(f"  [{f['plugin']}] {f['skill']}: name='{f['frontmatter_name']}' vs dir='{f['directory_name']}' — {f['fix']}")
+    else:
+        print(f"{C_GREEN}All SKILL.md name fields match their directories.{C_RESET}")
+
+    # Auto-fix skill frontmatter
+    if args.auto_fix and skill_fm_findings:
+        fix_results = fix_skill_frontmatter(packages_dir)
+        fixed_count = sum(1 for r in fix_results if r.get("fixed"))
+        if fixed_count:
+            print(f"{C_GREEN}Fixed SKILL.md name fields in {fixed_count} skill(s).{C_RESET}")
+            for r in fix_results:
+                if not r.get("fixed"):
+                    continue
+                for action in r["actions"]:
+                    print(f"  [{r['plugin']}] {action}")
+
+    # Registration state check (installed + enabled)
+    if mp_root:
+        print("\nChecking plugin registration state...")
+        reg_findings = audit_registration_state(mp_root)
+        reg_findings = [f for f in reg_findings if f["plugin"] in {p.name for p in plugin_dirs}]
+        if reg_findings:
+            not_installed = [f for f in reg_findings if f["type"] == "not_installed"]
+            not_enabled = [f for f in reg_findings if f["type"] == "not_enabled"]
+            print(f"{C_YELLOW}Found {len(not_installed)} not installed, {len(not_enabled)} not enabled:{C_RESET}")
+            for f in reg_findings:
+                tag = {"not_installed": "NOT INSTALLED", "not_enabled": "NOT ENABLED"}[f["type"]]
+                print(f"  {C_RED}[{tag}]{C_RESET} {f['plugin']}: {f['issue']}")
+                print(f"    Fix: {f['fix']}")
         else:
-            print("No source drift.")
-        if cache_only:
-            print(f"{C_YELLOW}Cache-only files:{C_RESET}")
-            for f in cache_only:
-                print(f"  {f['plugin']}: {[cf for cf in f['cache_only_files']]}")
-        else:
-            print("No cache-only files.")
-        # Stale version dirs are unambiguous debt — runtime only loads the
-        # version recorded in installed_plugins.json, so every older dir is
-        # dead weight. Auto-remove so the workflow never leaves accumulation.
+            print(f"{C_GREEN}All plugins installed and enabled.{C_RESET}")
+
+    # Drift check
+    print("\nChecking source vs cache drift...")
+    drift_findings = audit_source_cache_drift(packages_dir)
+    # Filter to only real plugins
+    plugin_names = {p.name for p in plugin_dirs}
+    drift_findings = [f for f in drift_findings if f["plugin"] in plugin_names]
+    stale_count = sum(1 for f in drift_findings if f["type"] == "stale_version_dirs")
+    modified_count = sum(1 for f in drift_findings if f["type"] == "source_modified")
+    cache_only_count = sum(1 for f in drift_findings if f["type"] == "cache_only")
+    if drift_findings:
+        print(f"{C_YELLOW}Found {stale_count} stale, {modified_count} drift, {cache_only_count} cache-only:{C_RESET}")
+        for f in drift_findings:
+            t = f["type"]
+            if t == "stale_version_dirs":
+                print(f"  {f['plugin']}: STALE {f['stale_versions']}")
+            elif t == "source_modified":
+                print(f"  {f['plugin']} ({f['cache_version']}): {f['drift_count']} modified")
+            elif t == "cache_only":
+                print(f"  {f['plugin']}: {f['cache_only_count']} cache-only")
+    else:
+        print(f"{C_GREEN}Cache is in sync with source.{C_RESET}")
+
+    path_fix_count = 0
+    if args.auto_fix and mp_root:
+        fix_results = auto_fix_plugins(packages_dir, args.delete_hooks)
+        fix_count = sum(len(r["actions"]) for r in fix_results if r.get("plugin") in plugin_names)
+        if fix_count:
+            print(f"{C_GREEN}Fixed {fix_count} issue(s).{C_RESET}")
+            for r in fix_results:
+                if r.get("plugin") not in plugin_names:
+                    continue
+                for action in r["actions"]:
+                    print(f"  [{r['plugin']}] {action}")
+
+        # Auto-fix hardcoded paths (on by default in --packages-root mode)
+        if not args.no_fix_paths:
+            path_results = fix_hardcoded_paths(packages_dir)
+            path_fix_count = sum(len(r["actions"]) for r in path_results if r.get("fixed"))
+            if path_fix_count:
+                print(f"{C_GREEN}Fixed hardcoded paths in {path_fix_count} file(s).{C_RESET}")
+                for r in path_results:
+                    if not r.get("fixed"):
+                        continue
+                    for action in r["actions"]:
+                        print(f"  [{r['plugin']}] {action}")
+
+        # Auto-fix: git artifacts (.pytest_cache, __pycache__, etc.)
+        git_results = auto_fix_git_artifacts(packages_dir)
+        git_fix_count = sum(len(r["actions"]) for r in git_results if r.get("plugin") in plugin_names)
+        if git_fix_count > 0:
+            print(f"{C_GREEN}Fixed .gitignore in {git_fix_count} plugin(s).{C_RESET}")
+            for r in git_results:
+                if r.get("plugin") not in plugin_names:
+                    continue
+                for action in r["actions"]:
+                    print(f"  [{r['plugin']}] {action}")
+
+        # Auto-fix: stale version dirs + source sync
+        # Re-check drift AFTER path fixes — path fixes modify source, so the
+        # original drift_findings are stale.
         import shutil
-        cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
-        deleted = []
-        for f in stale:
+        import subprocess
+        path_fixes = path_fix_count if not args.no_fix_paths else 0
+        if path_fixes > 0:
+            drift_findings = audit_source_cache_drift(packages_dir)
+            drift_findings = [f for f in drift_findings if f["plugin"] in plugin_names]
+        synced = []
+        stale_deleted = []
+        for f in drift_findings:
+            t = f["type"]
             pkg = f["plugin"]
-            for stale_ver in f["stale_versions"]:
-                stale_path = cache_root / pkg / stale_ver
-                if stale_path.exists():
-                    _rmtree_force(stale_path)
-                    deleted.append(f"{pkg}/{stale_ver}")
-        if deleted:
-            print(f"\n{C_GREEN}Removed {len(deleted)} stale version dir(s): {deleted}{C_RESET}")
-        # Output machine-readable summary for downstream parsing
-        print(f"\nSummary: 0 stale, {len(modified)} drift, {len(cache_only)} cache-only")
+            cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
+            if t == "stale_version_dirs":
+                for stale_ver in f["stale_versions"]:
+                    stale_path = cache_root / pkg / stale_ver
+                    if stale_path.exists():
+                        _rmtree_force(stale_path)
+                        stale_deleted.append(f"{pkg}/{stale_ver}")
+                        print(f"  {C_RED}Deleted stale: {pkg}/{stale_ver}{C_RESET}")
+            elif t == "source_modified":
+                src = packages_dir / pkg
+                version_dir = cache_root / pkg / f["cache_version"]
+                if src.exists() and version_dir.exists():
+                    sync_stats = bidir_sync(src, version_dir)
+                    if sync_stats["errors"]:
+                        for err in sync_stats["errors"]:
+                            print(f"  {C_RED}Sync error {pkg}: {err}{C_RESET}")
+                    parts = []
+                    if sync_stats["src_to_cache"]:
+                        parts.append(f"src→cache: {sync_stats['src_to_cache']}")
+                    if sync_stats["cache_to_src"]:
+                        parts.append(f"cache→src: {sync_stats['cache_to_src']}")
+                    if sync_stats["conflicts"]:
+                        parts.append(f"conflicts: {len(sync_stats['conflicts'])} (review manually)")
+                    if sync_stats["skipped"]:
+                        parts.append(f"cache-only skipped: {sync_stats['skipped']}")
+                    if parts:
+                        print(f"  {C_GREEN}Synced: {pkg} ({', '.join(parts)}){C_RESET}")
+                        synced.append(pkg)
+                    else:
+                        print(f"  {C_GREEN}Synced: {pkg} (no changes needed){C_RESET}")
+                        synced.append(pkg)
+            elif t == "cache_only":
+                print(f"  {C_YELLOW}Cache-only files in {pkg}: {f['cache_only_count']} file(s) — likely stale deleted content{C_RESET}")
+
+        if stale_deleted:
+            print(f"\n{C_GREEN}Deleted {len(stale_deleted)} stale version dir(s): {stale_deleted}{C_RESET}")
+
+    # Only return non-zero for actionable errors (manifest issues), not warnings
+    actionable_errors = sum(
+        len(r["errors"]) for r in all_results
+        if r.get("plugin") in {p.name for p in plugin_dirs}
+        and any("plugin.json" in e or "marketplace.json" in e for e in r.get("errors", []))
+    )
+    actionable_errors += len(settings_findings)
+    return actionable_errors
+
+
+def _cmd_scan_paths(plugins_dir):
+    print("Scanning for hardcoded paths...")
+    findings = scan_source_paths(plugins_dir)
+    if findings:
+        print(f"{C_RED}Found {len(findings)} hardcoded path(s):{C_RESET}")
+        for f in findings:
+            print(f"  [{f['plugin']}] {f['file']}: {f['issue']}")
+    else:
+        print(f"{C_GREEN}No hardcoded paths found.{C_RESET}")
+    return 0
+
+
+def _cmd_scan_name_conflicts():
+    print("Scanning for name conflicts across skill and command directories...")
+    conflict_results = audit_name_conflicts()
+    if conflict_results:
+        print(f"{C_RED}Found {len(conflict_results)} name conflict(s):{C_RESET}")
+        for c in conflict_results:
+            print(f"  [{c['type']}] {c['name']}: {c['issue']}")
+    else:
+        print(f"{C_GREEN}No name conflicts found.{C_RESET}")
+    return 0
+
+
+def _cmd_bump(args, plugins_dir, mp_root):
+    with _bump_lock() as locked:
+        if not locked:
+            print(f"  {C_RED}ERROR: could not acquire bump lock within {_BUMP_LOCK_TIMEOUT}s — another terminal is bumping. Retry.{C_RESET}")
+            return 1
+        bump_result = bump_version(plugins_dir, mp_root, args.bump)
+        if bump_result["errors"]:
+            for e in bump_result["errors"]:
+                print(f"  {C_RED}ERROR: {e}{C_RESET}")
+            return 1
+        for a in bump_result["actions"]:
+            print(f"  {C_GREEN}{a}{C_RESET}")
+
+        # Post-bump: create new cache dir, remove old version dir
+        import shutil
+        import subprocess
+        from datetime import datetime, timezone
+        pkg_name = args.bump
+        cache_root = _cache_dir_for_plugin(pkg_name)
+        old_ver = bump_result["old_version"]
+        new_ver = bump_result["new_version"]
+        cache_dir = cache_root / pkg_name
+        plugin_key = f"{pkg_name}@{_resolve_plugin_marketplace(pkg_name)}"
+
+        # 1. Update installed_plugins.json so Claude Code knows about new version
+        installed_path = Path(os.path.expanduser("~/.claude/plugins/installed_plugins.json"))
+        if installed_path.exists():
+            ok, installed_data = _load_json(installed_path)
+            if ok and installed_data is not None and "plugins" in installed_data:
+                if plugin_key in installed_data["plugins"]:
+                    installed_data["plugins"][plugin_key][0]["version"] = new_ver
+                    installed_data["plugins"][plugin_key][0]["installPath"] = str(cache_dir / new_ver)
+                    installed_data["plugins"][plugin_key][0]["lastUpdated"] = datetime.now(
+                        timezone.utc
+                    ).isoformat().replace("+00:00", "Z").replace("Z", "+00:00")
+                    _save_json(installed_path, installed_data)
+                    print(f"  {C_GREEN}Updated installed_plugins.json: {pkg_name}@{old_ver} → {new_ver} at {cache_dir / new_ver}{C_RESET}")
+
+        if not cache_dir.exists():
+            # Plugin registered in installed_plugins.json but no cache dir — create it
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create new version dir by syncing from source
+        src = plugins_dir / pkg_name
+        new_cache = cache_dir / new_ver
+        if src.exists():
+            new_cache.mkdir(parents=True, exist_ok=True)
+            sync_stats = bidir_sync(src, new_cache)
+            if sync_stats["errors"]:
+                for err in sync_stats["errors"]:
+                    print(f"  {C_YELLOW}Cache sync error: {err}{C_RESET}")
+            print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
+
+        # Remove ALL stale version dirs — runtime only loads the version in
+        # installed_plugins.json, so every other version dir is debt. Only
+        # ever keeping the new version prevents the accumulation the audit
+        # flags as "stale version dirs".
+        removed_versions = []
+        if cache_dir.exists():
+            for vdir in cache_dir.iterdir():
+                if vdir.is_dir() and vdir.name != new_ver:
+                    _rmtree_force(vdir)
+                    removed_versions.append(vdir.name)
+        if removed_versions:
+            print(f"  {C_GREEN}Removed stale cache: {pkg_name}/{', '.join(sorted(removed_versions))}{C_RESET}")
+
+        # Post-bump: update marketplace index and verify zero drift
+        print(f"\n{C_CYAN}=== Marketplace Sync ==={C_RESET}")
+        mp_update = subprocess.run(
+            ["claude", "plugin", "marketplace", "update", "local"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if mp_update.returncode == 0:
+            print(f"  {C_GREEN}Marketplace updated.{C_RESET}")
+        else:
+            print(f"  {C_YELLOW}Marketplace update failed: {mp_update.stderr.strip() or mp_update.stdout.strip()}{C_RESET}")
+
+        # Verify zero drift for the bumped plugin; re-sync then RE-VERIFY.
+        # Without the re-audit, a persistent drift (file-locked, permission
+        # error, bidir_sync clobber) would print "Re-synced" and return 0,
+        # masking the failure — see memory plugin_bidir_sync_source_wins.md.
+        _drift_root = plugins_dir.parent if plugins_dir.name == "plugins" else plugins_dir
+        drift = audit_source_cache_drift(_drift_root)
+        drift = [f for f in drift if f["plugin"] == pkg_name and f["type"] == "source_modified"]
+        if drift:
+            print(f"  {C_YELLOW}Drift detected after bump — re-syncing...{C_RESET}")
+            resync_errors: list[str] = []
+            for f in drift:
+                version_dir = cache_root / pkg_name / f["cache_version"]
+                src_path = plugins_dir / pkg_name
+                if src_path.exists() and version_dir.exists():
+                    stats = bidir_sync(src_path, version_dir)
+                    if stats.get("errors"):
+                        resync_errors.extend(stats["errors"])
+                    print(f"  {C_GREEN}Re-synced {pkg_name}.{C_RESET}")
+            # ponytail: the re-audit is the load-bearing check — bidir_sync
+            # returning no errors does not prove bytes match (known clobber
+            # failure mode). Only a clean second audit certifies zero drift.
+            second_drift = [
+                f for f in audit_source_cache_drift(_drift_root)
+                if f["plugin"] == pkg_name and f["type"] == "source_modified"
+            ]
+            if second_drift or resync_errors:
+                print(
+                    f"  {C_RED}PERSISTENT DRIFT after re-sync for {pkg_name}: "
+                    f"{len(second_drift)} file(s) still differ, "
+                    f"{len(resync_errors)} sync error(s).{C_RESET}",
+                    file=sys.stderr,
+                )
+                for err in resync_errors:
+                    print(f"  {C_RED}  sync error: {err}{C_RESET}", file=sys.stderr)
+                return 1
+            print(f"  {C_GREEN}Zero drift confirmed for {pkg_name} after re-sync.{C_RESET}")
+        else:
+            print(f"  {C_GREEN}Zero drift confirmed for {pkg_name}.{C_RESET}")
+
+        print(f"\n{C_CYAN}=== Done ==={C_RESET}")
+        print(f"  Run {C_CYAN}/reload-plugins{C_RESET} to activate {pkg_name} {new_ver}.")
         return 0
+
+
+def _cmd_validate(args, plugins_dir):
+    print("Validating plugins...")
+    failed = 0
+    for plugin in sorted(plugins_dir.iterdir()):
+        if plugin.name.startswith("."):
+            continue
+        if args.plugins and plugin.name != args.plugins:
+            continue
+        plugin_dir = str(plugin)
+        result = __import__("subprocess").run(
+            ["claude", "plugin", "validate", plugin_dir],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            print(f"  {C_GREEN}✓ {plugin.name}{C_RESET}")
+        else:
+            print(f"  {C_RED}✗ {plugin.name}{C_RESET}")
+            failed += 1
+    if failed > 0:
+        print(f"{C_RED}{failed} plugin(s) failed validation{C_RESET}")
+    else:
+        print(f"{C_GREEN}All plugins validated{C_RESET}")
+    return failed
+
+
+def _cmd_drift(plugins_dir):
+    findings = audit_source_cache_drift(plugins_dir)
+    stale = [f for f in findings if f["type"] == "stale_version_dirs"]
+    modified = [f for f in findings if f["type"] == "source_modified"]
+    cache_only = [f for f in findings if f["type"] == "cache_only"]
+    if stale:
+        print(f"{C_YELLOW}Stale version dirs:{C_RESET}")
+        for f in stale:
+            print(f"  {f['plugin']}: stale {[d for d in f['stale_versions']]}")
+    else:
+        print("No stale version dirs.")
+    if modified:
+        print(f"{C_YELLOW}Source drift:{C_RESET}")
+        for f in modified:
+            sample = ", ".join(f["sample_files"][:3])
+            extra = f" (+{f['drift_count'] - len(f['sample_files'])} more)" if f["drift_count"] > len(f["sample_files"]) else ""
+            print(f"  {f['plugin']} ({f['cache_version']}): {f['drift_count']} file(s) modified — {sample}{extra}")
+    else:
+        print("No source drift.")
+    if cache_only:
+        print(f"{C_YELLOW}Cache-only files:{C_RESET}")
+        for f in cache_only:
+            print(f"  {f['plugin']}: {[cf for cf in f['cache_only_files']]}")
+    else:
+        print("No cache-only files.")
+    # Stale version dirs are unambiguous debt — runtime only loads the
+    # version recorded in installed_plugins.json, so every older dir is
+    # dead weight. Auto-remove so the workflow never leaves accumulation.
+    import shutil
+    cache_root = Path(os.path.expanduser("~/.claude/plugins/cache/local"))
+    deleted = []
+    for f in stale:
+        pkg = f["plugin"]
+        for stale_ver in f["stale_versions"]:
+            stale_path = cache_root / pkg / stale_ver
+            if stale_path.exists():
+                _rmtree_force(stale_path)
+                deleted.append(f"{pkg}/{stale_ver}")
+    if deleted:
+        print(f"\n{C_GREEN}Removed {len(deleted)} stale version dir(s): {deleted}{C_RESET}")
+    # Output machine-readable summary for downstream parsing
+    print(f"\nSummary: 0 stale, {len(modified)} drift, {len(cache_only)} cache-only")
+    return 0
+
+
+def _cmd_audit_default(args, plugins_dir, mp_root):
     print("Auditing plugins...")
     plugin_results = audit_plugins(plugins_dir, mp_root, plugin_filter=args.plugins)
     settings_path = Path(os.path.expanduser("~/.claude/settings.json"))
@@ -2999,5 +3026,6 @@ def main(argv: list[str]) -> int:
                 Path(tmp_path).unlink(missing_ok=True)
 
     return error_count
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
