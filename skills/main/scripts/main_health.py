@@ -1245,6 +1245,15 @@ def run_doc_drift_check() -> CheckResult:
     # backtick code, and URLs are excluded to avoid FP on examples.
     _plugins_root = Path("P:/packages/.claude-marketplace/plugins")
     _valid_cmds: set[str] = set()
+    # Claude Code built-in commands (not plugins) + known aliases
+    _valid_cmds.update({
+        "compact", "clear", "help", "config", "doctor", "init", "reload",
+        "resume", "cost", "status", "model", "login", "logout", "mcp", "vim",
+        "hooks", "memory", "agents", "permissions", "pr-comments",
+        "release-notes", "upgrade", "bug", "statusline", "fast",
+        "health",  # alias of /main
+        "explore", "analyze",  # agent types commonly referenced as /name
+    })
     if _plugins_root.exists():
         for _skill_md in _plugins_root.rglob("SKILL.md"):
             try:
@@ -1262,8 +1271,10 @@ def run_doc_drift_check() -> CheckResult:
 
     _seen_zombie: set[tuple[str, str]] = set()
     _zombie_count = 0
-    _cmd_ref_re = re.compile(r"(?<![`/\\])/([a-zA-Z][a-zA-Z0-9_-]{0,30})")
+    _cmd_ref_re = re.compile(r"(?<![a-zA-Z0-9:`/\\])/([a-z][a-z0-9_-]{2,30})\b")
     for _target in targets:
+        if _target.name != "SKILL.md":
+            continue  # command refs live in skill instructions, not CLAUDE.md prose
         if not _target.exists():
             continue
         try:
