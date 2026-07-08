@@ -495,21 +495,25 @@ def _get_changed_paths(cwd: Path) -> list[str]:
 
 
 def _commit_group_key(path: str) -> str:
-    """Subsystem boundary for grouping: plugins/<name>, else top-level dir.
+    """Subsystem boundary for grouping: one commit per logical unit.
 
-    Bare root-level files (no directory) share a single "root" group so they
-    don't each become their own commit.
+    Granularity rule (depth = 2 segments, capped at the area boundary):
+      * depth-1 paths (single segment like `README.md`) -> "root"
+      * depth-2 paths (top dir + filename like `agents/foo.md`,
+        `hooks/Stop.py`, `.claude-plugin/plugin.json`) -> just the top dir
+      * depth-3+ paths -> first two segments, so `skills/go` and
+        `skills/refactor` land in different commits when both are dirty
+        (2026-07-08 incident: telemetry in skills/go was co-committed with
+        refactor-discovery work in skills/refactor). Same rule covers
+        `plugins/<name>/<area>/...` and general top-level subdirs.
+    Bare root-level files share a single "root" group.
     """
     parts = Path(path).parts
-    try:
-        idx = parts.index("plugins")
-        if idx + 1 < len(parts):
-            return f"plugins/{parts[idx + 1]}"
-    except ValueError:
-        pass
-    if len(parts) > 1:
+    if len(parts) <= 1:
+        return "root"
+    if len(parts) == 2:
         return parts[0]
-    return "root"
+    return f"{parts[0]}/{parts[1]}"
 
 
 def _stage_paths(cwd: Path, paths: list[str]) -> bool:
