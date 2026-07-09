@@ -10,7 +10,7 @@ Utility skills for Claude Code — git operations, system health, plugin managem
 | /main | Real-time infrastructure health probe (alias: /health) | `main/` |
 | /init | Initialize CLAUDE.md at module/feature root | `init/` |
 | /plugin-installer | Plugin audit, validate, install, sync, add, remove, refresh, bump, status | `plugin-installer/` |
-| /bifrost | Bifrost governance model query with provider taxonomy and cost filtering | `bifrost/` |
+| /bifrost | RETIRED — Bifrost not in use; skill pending removal (see Tier 2 of bifrost excision) | `bifrost/` |
 
 ## Artifacts Convention
 
