@@ -20,6 +20,9 @@ audit_stop_module_shadows = _mod.audit_stop_module_shadows
 bump_version = _mod.bump_version
 bidir_sync = _mod.bidir_sync
 main = _mod.main
+audit_runtime_state = _mod.audit_runtime_state
+runtime_state_marker_dirs = _mod.runtime_state_marker_dirs
+_BIDIR_SKIP_DIRS = _mod._BIDIR_SKIP_DIRS
 
 
 def _make_plugin(packages_dir: Path, name: str = "test-pkg", version: str = "1.0.0") -> Path:
@@ -848,3 +851,93 @@ class TestStopModuleShadows:
             findings = audit_stop_module_shadows()
 
         assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Runtime-state tracking audit (--audit-runtime-state)
+# ---------------------------------------------------------------------------
+
+def _git(cwd: Path, *args: str):
+    import subprocess
+    return subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True)
+
+
+def _init_repo(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+    _git(p, "init", "--quiet", "--initial-branch=main")
+    _git(p, "config", "user.email", "t@t")
+    _git(p, "config", "user.name", "t")
+
+
+def _commit(p: Path, msg: str = "init") -> None:
+    _git(p, "add", "-A")
+    _git(p, "commit", "-q", "-m", msg)
+
+
+def test_runtime_audit_clean_repo_passes(tmp_path):
+    """A plugin with 0 tracked runtime-state files produces no findings."""
+    plugins = tmp_path / "plugins"
+    _make_plugin(plugins, "clean-pkg")
+    _init_repo(tmp_path)
+    _commit(tmp_path)
+    findings = audit_runtime_state(plugins)
+    assert findings == [], findings
+
+
+def test_runtime_audit_tracked_in_use_fails(tmp_path):
+    """A tracked .in_use/<PID> file is flagged."""
+    plugins = tmp_path / "plugins"
+    pkg = _make_plugin(plugins, "dirty-pkg")
+    (pkg / ".in_use").mkdir()
+    (pkg / ".in_use" / "12948").write_text('{"pid":12948}')
+    _init_repo(tmp_path)
+    _commit(tmp_path)  # .in_use/12948 gets tracked here (no gitignore yet)
+    findings = audit_runtime_state(plugins)
+    assert len(findings) == 1, findings
+    f = findings[0]
+    assert f["plugin"] == "dirty-pkg"
+    assert f["total"] == 1
+    assert ".in_use" in f["by_marker"]
+    assert ".in_use/12948" in f["by_marker"][".in_use"]
+
+
+def test_runtime_audit_untracked_physical_in_use_passes(tmp_path):
+    """Physical .in_use on disk but NOT tracked (gitignored) -> no finding."""
+    plugins = tmp_path / "plugins"
+    pkg = _make_plugin(plugins, "ignored-pkg")
+    (pkg / ".in_use").mkdir()
+    (pkg / ".in_use" / "12948").write_text('{"pid":12948}')
+    (tmp_path / ".gitignore").write_text(".in_use/\n")
+    _init_repo(tmp_path)
+    _commit(tmp_path)  # .in_use is gitignored -> not tracked
+    assert (pkg / ".in_use" / "12948").is_file()  # physical file still present
+    findings = audit_runtime_state(plugins)
+    assert findings == [], findings
+
+
+def test_runtime_audit_suggests_cached_untrack(tmp_path, capsys):
+    """CLI output suggests `git rm --cached` (non-destructive), never delete."""
+    plugins = tmp_path / "plugins"
+    pkg = _make_plugin(plugins, "dirty-pkg")
+    (pkg / ".in_use").mkdir()
+    (pkg / ".in_use" / "12948").write_text('{"pid":12948}')
+    _init_repo(tmp_path)
+    _commit(tmp_path)
+    rc = main(["x", "--audit-runtime-state", "--marketplace-root", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "rm --cached" in out, "must suggest non-destructive git rm --cached"
+    assert "delete" not in out.lower(), out
+    assert rc == 1  # FAIL exit when findings exist
+
+
+def test_runtime_audit_marker_set_sourced_from_bidir_skip_dirs():
+    """Drift guard: the audit's markers must come from _BIDIR_SKIP_DIRS.
+
+    If someone drops .in_use from _BIDIR_SKIP_DIRS (or adds a divergent
+    hardcoded list), this test fails. .in_use is the canonical CC per-load
+    PID marker documented in _BIDIR_SKIP_DIRS.
+    """
+    markers = set(runtime_state_marker_dirs())
+    assert markers <= set(_BIDIR_SKIP_DIRS), markers  # no divergent list
+    assert ".in_use" in markers                        # known marker present
+    assert ".in_use" in _BIDIR_SKIP_DIRS               # drift catch on source
