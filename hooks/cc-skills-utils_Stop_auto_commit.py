@@ -528,6 +528,17 @@ def _stage_paths(cwd: Path, paths: list[str]) -> bool:
     return run_git_command(["add", "--"] + paths, cwd).returncode == 0
 
 
+def _commit_pathspec(cwd: Path, msg: str, paths: list[str]) -> bool:
+    """Commit ONLY the given paths via explicit pathspec (#1256).
+
+    A plain ``git commit -m msg`` commits everything staged in the index; if
+    another session pre-staged an unrelated file, that file would be swept
+    into this /go run's commit. The pathspec bounds the commit to owned files
+    and leaves any unrelated staged state untouched (non-destructive).
+    """
+    return run_git_command(["commit", "-m", msg, "--"] + paths, cwd).returncode == 0
+
+
 # --- /go commit-boundary enforcement (#1256) ----------------------------------
 # When an active /go run is resolvable (Stop payload session_id -> pointer ->
 # state dir -> run_id), auto-commit stages ONLY files the run owns (owned ∩
@@ -873,16 +884,21 @@ def _debounce_state_path(cwd: Path) -> Path:
     return _DEBOUNCE_DIR / f"debounce_{key}.json"
 
 
-def _should_commit_now(cwd: Path) -> bool:
+def _should_commit_now(cwd: Path, candidate: list[str] | None = None) -> bool:
     """Commit on quiescence (changed-path set stable across Stops) or safety valve.
 
     Defer while the change set keeps growing turn-to-turn so a logical unit
     spanning multiple turns lands in one commit. Commit when the set is unchanged
     from the prior Stop, or when pending changes have deferred past MAX_DEFER_STOPS
     (bounds pile-up during long edit bursts). State is reset on every commit.
+
+    ``candidate`` overrides the change-set source: in /go boundary mode the
+    caller passes the owned-file set (deletions included), because the default
+    ``_get_changed_paths`` filters deletions and would read a deletion-only
+    tree as empty — blocking owned-deletion commits (#1256).
     """
     try:
-        current = sorted(_get_changed_paths(cwd))
+        current = sorted(candidate if candidate is not None else _get_changed_paths(cwd))
     except Exception:
         return True  # can't read the tree safely -> commit (fail-open)
 
@@ -951,16 +967,11 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     if not has_uncommitted_changes(cwd):
         return False
 
-    # Debounce: coalesce multi-turn logical units; commit on quiescence.
-    # Defers mid-unit edits so source+test+version land together.
-    if not _should_commit_now(cwd):
-        return False
-
-    # /go commit-boundary (#1256): when an active /go run is resolved, stage
-    # ONLY owned ∩ changed (owned deletions included). Holds unrelated files
-    # in the working tree and records a boundary-violation diagnostic. No
-    # pointer -> current broad behavior (GO_AUTO_COMMIT_FAIL_CLOSED opts into
-    # global fail-closed for the no-pointer case).
+    # /go commit-boundary (#1256): resolve ownership BEFORE debounce so the
+    # debounce sees the real commit candidate (owned files, deletions
+    # included). _get_changed_paths filters deletions; without the override a
+    # deletion-only tree reads as empty and the debounce would never fire,
+    # blocking owned-deletion commits.
     _boundary_stage: list[str] | None = None
     if boundary is not None:
         all_changed = _get_changed_paths_with_deletions(cwd)
@@ -978,13 +989,17 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     elif os.environ.get("GO_AUTO_COMMIT_FAIL_CLOSED", "").lower() in ("1", "true", "yes"):
         return False  # strict global: no /go pointer -> no broad auto-commit
 
-    # Group changes by subsystem; commit each separately when heterogeneous.
-    # Merge state and single-subsystem sets fall through to the original path.
-    # When boundary-enforced, groups are built from owned files only.
-    if not _is_in_merge(cwd):
-        src_paths = _boundary_stage if _boundary_stage is not None else _get_changed_paths(cwd)
+    # Debounce on the candidate set (owned, when boundary-enforced).
+    if not _should_commit_now(cwd, candidate=_boundary_stage):
+        return False
+
+    # Group changes by subsystem (non-boundary only). In boundary mode the
+    # owned set IS the separation and is committed as one pathspec-bounded
+    # unit below; _commit_grouped commits without a pathspec and would sweep
+    # a pre-staged unrelated file into this run's commit.
+    if _boundary_stage is None and not _is_in_merge(cwd):
         groups: dict[str, list[str]] = {}
-        for p in src_paths:
+        for p in _get_changed_paths(cwd):
             groups.setdefault(_commit_group_key(p), []).append(p)
         if len(groups) > 1:
             return _commit_grouped(cwd, groups, transcript_path)
@@ -1057,16 +1072,21 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     if session_id != "unknown":
         commit_msg = f"[{session_id}] {commit_msg}"
 
-    # Commit with generated message (CHANGELOG already staged if notable)
+    # Commit with generated message (CHANGELOG already staged if notable).
+    # Boundary-enforced: pathspec-bounded commit so a pre-staged unrelated
+    # file is not swept into this /go run's commit (#1256).
     commit_success = False
-    if HAS_GIT_HELPER:
-        try:
-            commit_success = bool(GitHelper(cwd).commit(commit_msg))
-        except Exception:
-            commit_success = False
-    if not commit_success:  # subprocess fallback (mirrors _stage_paths/_commit_grouped)
-        commit_result = run_git_command(["commit", "-m", commit_msg], cwd)
-        commit_success = commit_result.returncode == 0
+    if _boundary_stage is not None:
+        commit_success = _commit_pathspec(cwd, commit_msg, _boundary_stage)
+    else:
+        if HAS_GIT_HELPER:
+            try:
+                commit_success = bool(GitHelper(cwd).commit(commit_msg))
+            except Exception:
+                commit_success = False
+        if not commit_success:  # subprocess fallback (mirrors _stage_paths/_commit_grouped)
+            commit_result = run_git_command(["commit", "-m", commit_msg], cwd)
+            commit_success = commit_result.returncode == 0
 
     # Only add notifications if commit actually succeeded
     if commit_success:
