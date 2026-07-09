@@ -1057,28 +1057,30 @@ def _file_quality_score(fpath: Path) -> tuple[int, list[str]]:
     return (score, issues)
 
 
-def bidir_sync(source: Path, cache: Path) -> dict:
-    """Quality-aware bidirectional sync for junction-based plugins.
+def bidir_sync(source: Path, cache: Path, direction: str = "bidirectional") -> dict:
+    """Quality-aware sync for junction-based plugins.
 
-    When both sides have a file with different content, static quality analysis
-    determines the winner:
-    - JSON files: parse validity + schema structure (e.g., hooks.json must have "hooks" key)
-    - Python files: ast.parse validity (syntax errors lose)
-    - Text files: encoding validity + non-trivial content
-    - If both pass quality checks → source wins (canonical location)
-    - If neither passes → flagged for manual review
+    direction:
+      "bidirectional"        — default; legacy behavior (src↔cache). Source wins divergent.
+      "source_to_cache_only" — release mode (--bump); never writes to source.
+      "cache_to_source_only" — recovery mode; cache→source, quality-gated. Cache wins divergent.
+      "dry_run"              — writes nothing; classifies each file.
 
-    - Same file, same content → skip
-    - File only in source → copy to cache
-    - File only in cache → copy to source (may be install-generated or accidentally deleted)
-
-    Returns dict with stats.
+    Source is canonical on conflict in bidirectional/source_to_cache modes.
+    Returns stats incl. "source_mutated", "direction", and dry-run classification lists.
     """
     import shutil
+    _VALID_DIRECTIONS = {"bidirectional", "source_to_cache_only", "cache_to_source_only", "dry_run"}
+    if direction not in _VALID_DIRECTIONS:
+        raise ValueError(f"direction must be one of {sorted(_VALID_DIRECTIONS)}, got {direction!r}")
     stats: dict[str, Any] = {
         "synced": 0, "src_to_cache": 0, "cache_to_src": 0,
         "skipped": 0, "conflicts": [], "stale_cache_files": [],
         "manual_review": [], "errors": [],
+        "direction": direction,
+        "source_mutated": False,
+        "dry_run": direction == "dry_run",
+        "source_only": [], "cache_only": [], "divergent": [], "identical": 0,
     }
 
     if not source.exists() or not cache.exists():
@@ -1099,35 +1101,48 @@ def bidir_sync(source: Path, cache: Path) -> dict:
     _walk(source, src_files)
     _walk(cache, cache_files)
 
-    all_keys = set(src_files) | set(cache_files)
+    is_dry = direction == "dry_run"
+    do_src_to_cache = direction in ("bidirectional", "source_to_cache_only")
+    do_cache_to_src = direction in ("bidirectional", "cache_to_source_only")
 
-    for rel in sorted(all_keys):
+    for rel in sorted(set(src_files) | set(cache_files)):
         src_file = src_files.get(rel)
         cache_file = cache_files.get(rel)
 
         if src_file and cache_file:
-            # Both exist — compare content
             try:
-                if src_file.read_bytes() == cache_file.read_bytes():
-                    continue  # identical, skip
+                same = src_file.read_bytes() == cache_file.read_bytes()
             except OSError:
-                pass
-
-            # Content differs — source is canonical, always wins (copy src→cache)
+                same = False
+            if same:
+                stats["identical"] += 1
+                continue
+            stats["divergent"].append(rel)
+            if is_dry:
+                continue
             src_score, src_issues = _file_quality_score(src_file)
             cache_score, cache_issues = _file_quality_score(cache_file)
-
-            # Record conflict for manual review if needed
             stats["conflicts"].append(rel)
-            dest = cache / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.copy2(str(src_file), str(dest))
-                stats["src_to_cache"] += 1
-            except OSError as e:
-                stats["errors"].append(f"copy src→cache {rel}: {e}")
-
-            # Flag for manual review if both have quality issues
+            if do_src_to_cache:
+                dest = cache / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copy2(str(src_file), str(dest))
+                    stats["src_to_cache"] += 1
+                except OSError as e:
+                    stats["errors"].append(f"copy src→cache {rel}: {e}")
+            # Pure recovery: cache wins divergent, quality-gated.
+            if do_cache_to_src and not do_src_to_cache:
+                cscore, ciss = _file_quality_score(cache_file)
+                if cscore >= 0 and not ciss:
+                    dest = source / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        shutil.copy2(str(cache_file), str(dest))
+                        stats["cache_to_src"] += 1
+                        stats["source_mutated"] = True
+                    except OSError as e:
+                        stats["errors"].append(f"copy cache→src {rel}: {e}")
             if src_score < 0 and cache_score < 0:
                 stats["manual_review"].append(
                     f"{rel}: both sides have quality issues "
@@ -1135,7 +1150,9 @@ def bidir_sync(source: Path, cache: Path) -> dict:
                 )
 
         elif src_file and not cache_file:
-            # Only in source — copy to cache
+            stats["source_only"].append(rel)
+            if is_dry or not do_src_to_cache:
+                continue
             dest = cache / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -1145,14 +1162,17 @@ def bidir_sync(source: Path, cache: Path) -> dict:
                 stats["errors"].append(f"copy src→cache {rel}: {e}")
 
         elif cache_file and not src_file:
-            # Only in cache — cache is derived, not canonical. Skip unless high quality.
+            stats["cache_only"].append(rel)
+            if is_dry:
+                continue
             score, issues = _file_quality_score(cache_file)
-            if score >= 0 and not issues:
+            if do_cache_to_src and score >= 0 and not issues:
                 dest = source / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     shutil.copy2(str(cache_file), str(dest))
                     stats["cache_to_src"] += 1
+                    stats["source_mutated"] = True
                 except OSError as e:
                     stats["errors"].append(f"copy cache→src {rel}: {e}")
             else:
@@ -2704,11 +2724,11 @@ def _cmd_bump(args, plugins_dir, mp_root):
         new_cache = cache_dir / new_ver
         if src.exists():
             new_cache.mkdir(parents=True, exist_ok=True)
-            sync_stats = bidir_sync(src, new_cache)
+            sync_stats = bidir_sync(src, new_cache, direction="source_to_cache_only")
             if sync_stats["errors"]:
                 for err in sync_stats["errors"]:
                     print(f"  {C_YELLOW}Cache sync error: {err}{C_RESET}")
-            print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}){C_RESET}")
+            print(f"  {C_GREEN}Created cache: {pkg_name}/{new_ver} (src→cache: {sync_stats['src_to_cache']}, cache→src: {sync_stats['cache_to_src']}, source_mutated: {sync_stats['source_mutated']}, mode: {sync_stats['direction']}){C_RESET}")
 
         # Remove ALL stale version dirs — runtime only loads the version in
         # installed_plugins.json, so every other version dir is debt. Only
@@ -2748,7 +2768,7 @@ def _cmd_bump(args, plugins_dir, mp_root):
                 version_dir = cache_root / pkg_name / f["cache_version"]
                 src_path = plugins_dir / pkg_name
                 if src_path.exists() and version_dir.exists():
-                    stats = bidir_sync(src_path, version_dir)
+                    stats = bidir_sync(src_path, version_dir, direction="source_to_cache_only")
                     if stats.get("errors"):
                         resync_errors.extend(stats["errors"])
                     print(f"  {C_GREEN}Re-synced {pkg_name}.{C_RESET}")
