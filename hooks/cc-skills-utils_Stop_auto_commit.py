@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -435,7 +436,7 @@ def find_repos_with_changes(root: Path) -> list[Path]:
     return repos
 
 
-def auto_commit_all(transcript_path: str | None = None) -> bool:
+def auto_commit_all(transcript_path: str | None = None, boundary: dict | None = None) -> bool:
     """Auto-commit to all repos with uncommitted changes.
 
     Returns True if any changes were committed.
@@ -450,13 +451,13 @@ def auto_commit_all(transcript_path: str | None = None) -> bool:
     committed = False
     for repo in repos_with_changes:
         try:
-            if auto_commit(repo, transcript_path=transcript_path):
+            if auto_commit(repo, transcript_path=transcript_path, boundary=boundary):
                 rel_path = repo.relative_to(root)
                 print(f"[auto-commit] Committed to {rel_path}")
                 committed = True
         except Exception as e:
             # Continue with other repos even if one fails
-            _logger.warning(f"[auto-commit] Failed to commit to {rel_path}: {e}")
+            _logger.warning(f"[auto-commit] Failed to commit to a repo: {e}")
 
     return committed
 
@@ -525,6 +526,159 @@ def _stage_paths(cwd: Path, paths: list[str]) -> bool:
         except Exception:
             pass
     return run_git_command(["add", "--"] + paths, cwd).returncode == 0
+
+
+# --- /go commit-boundary enforcement (#1256) ----------------------------------
+# When an active /go run is resolvable (Stop payload session_id -> pointer ->
+# state dir -> run_id), auto-commit stages ONLY files the run owns (owned ∩
+# changed, including owned deletions). This closes the asymmetry where /go's
+# PreToolUse gate enforced mutation-time ownership but commit-time ownership
+# was blind and working-tree-wide — sweeping unrelated concurrent workstreams
+# into the same semantic commit (2026-07-08 #1332 recurrence). No pointer ->
+# current behavior preserved; opt into global fail-closed via
+# GO_AUTO_COMMIT_FAIL_CLOSED=1. Reuses the session-pointer model from
+# go_continuation_gate.py and the owned-set semantics from omission_audit.py
+# (artifacts read across the producer/consumer boundary; no cross-plugin code
+# import).
+
+_ARTIFACTS_ROOT = Path(
+    os.environ.get("GO_ARTIFACTS_ROOT", str(PROJECT_ROOT / ".claude" / ".artifacts"))
+)
+_SESSIONS_DIR = _ARTIFACTS_ROOT / "go-sessions"
+_BOUNDARY_STALE_TTL = 6 * 3600  # mirror go_continuation_gate.py
+
+
+def _payload_session_id(data: dict) -> str:
+    """session_id from the Stop payload (may be empty).
+
+    NOT get_session_id_for_commit(): that reads current_session.json and
+    returns a commit tag. Pointer resolution needs the payload session_id, the
+    same field go_continuation_gate reads.
+    """
+    sid = data.get("session_id") or data.get("sessionId") or ""
+    return sid if isinstance(sid, str) else ""
+
+
+def _read_json_safe(path: Path) -> dict:
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def _parse_iso_ts(s: str) -> float | None:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _compute_owned_files(state_dir: Path, run_id: str) -> set[str]:
+    """Files the active /go run declares it touched.
+
+    Prefers the omission-audit artifact's classified boundary
+    (commit_boundary_packet.mine_for_this_task); falls back to an inline union
+    of diff-summary + claude-task-result + active-task.scope_in — mirroring
+    omission_audit._owned_files with active-task.scope_in added as an
+    early-available floor.
+    """
+    oa = _read_json_safe(state_dir / f"omission-audit_{run_id}.json")
+    packet = oa.get("commit_boundary_packet") or {}
+    mine = packet.get("mine_for_this_task")
+    if isinstance(mine, list) and mine:
+        return {str(f) for f in mine}
+
+    owned: set[str] = set()
+    diff = _read_json_safe(state_dir / f"diff-summary_{run_id}.json")
+    for k in ("files", "changed_files", "name_only"):
+        v = diff.get(k)
+        if isinstance(v, list):
+            owned.update(str(f) for f in v)
+    res = _read_json_safe(state_dir / f"claude-task-result_{run_id}.json")
+    for k in ("files_touched", "files_written", "scope_in"):
+        v = res.get(k)
+        if isinstance(v, list):
+            owned.update(str(f) for f in v)
+    at = _read_json_safe(state_dir / f"active-task_{run_id}.json")
+    v = at.get("scope_in")
+    if isinstance(v, list):
+        owned.update(str(f) for f in v)
+    return owned
+
+
+def _is_owned(path: str, owned: set[str]) -> bool:
+    """Membership + directory-prefix match (mirrors omission_audit classification)."""
+    if path in owned:
+        return True
+    return any(path.startswith(o.rstrip("/") + "/") for o in owned if o)
+
+
+def _get_changed_paths_with_deletions(cwd: Path) -> list[tuple[str, bool]]:
+    """All changed paths incl. deletions, repo-root relative. Tuples (path, is_deletion)."""
+    result = run_git_command(["status", "--porcelain", "--untracked-files=all"], cwd)
+    out: list[tuple[str, bool]] = []
+    for line in result.stdout.splitlines():
+        if len(line) < 4:
+            continue
+        xy = line[:2]
+        raw = line[3:].strip()
+        if " -> " in raw:  # rename: take destination
+            raw = raw.split(" -> ", 1)[1]
+        raw = raw.strip().strip('"')
+        if raw:
+            out.append((raw, "D" in xy))
+    return out
+
+
+def _write_boundary_violation(
+    state_dir: Path, run_id: str, owned_changed: list[str], not_owned: list[str], decision: str
+) -> None:
+    """Diagnostic record of files held back from a /go Stop auto-commit."""
+    try:
+        path = state_dir / f"boundary-violation_{run_id}.json"
+        payload = {
+            "run_id": run_id,
+            "generated_at": int(time.time()),
+            "decision": decision,
+            "mine_for_this_task": sorted(owned_changed),
+            "not_owned": sorted(not_owned),
+            "note": "held back from Stop auto-commit; not owned by active /go run",
+        }
+        state_dir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError:
+        pass  # diagnostic-only; never block commit on a failed write
+
+
+def _resolve_go_boundary(session_id: str) -> dict | None:
+    """Resolve the active /go run's owned-file set, or None when no active run.
+
+    Returns {owned, run_id, state_dir} or None (no pointer / stale / state_dir
+    missing). None means: preserve current auto-commit behavior unless
+    GO_AUTO_COMMIT_FAIL_CLOSED forces global fail-closed.
+    """
+    if not session_id:
+        return None
+    pointer = _read_json_safe(_SESSIONS_DIR / f"{session_id}.json")
+    if not pointer:
+        return None
+    ts = _parse_iso_ts(pointer.get("updated_at") or "")
+    if ts is not None and (time.time() - ts) > _BOUNDARY_STALE_TTL:
+        return None
+    state_dir_raw = pointer.get("go_state_dir")
+    run_id = pointer.get("run_id")
+    if not (isinstance(state_dir_raw, str) and isinstance(run_id, str)):
+        return None
+    state_dir = Path(state_dir_raw)
+    if not state_dir.is_dir():
+        return None
+    return {"owned": _compute_owned_files(state_dir, run_id), "run_id": run_id, "state_dir": state_dir}
 
 
 # --- commit-message fallback chain -------------------------------------------------
@@ -771,7 +925,7 @@ def _should_commit_now(cwd: Path) -> bool:
     return False
 
 
-def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = None) -> bool:
+def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = None, boundary: dict | None = None) -> bool:
     """
     Auto-commit and push uncommitted changes.
 
@@ -802,21 +956,50 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     if not _should_commit_now(cwd):
         return False
 
+    # /go commit-boundary (#1256): when an active /go run is resolved, stage
+    # ONLY owned ∩ changed (owned deletions included). Holds unrelated files
+    # in the working tree and records a boundary-violation diagnostic. No
+    # pointer -> current broad behavior (GO_AUTO_COMMIT_FAIL_CLOSED opts into
+    # global fail-closed for the no-pointer case).
+    _boundary_stage: list[str] | None = None
+    if boundary is not None:
+        all_changed = _get_changed_paths_with_deletions(cwd)
+        owned_set = boundary["owned"]
+        owned_changed = [p for p, _ in all_changed if _is_owned(p, owned_set)]
+        not_owned = [p for p, _ in all_changed if not _is_owned(p, owned_set)]
+        if not_owned:
+            _write_boundary_violation(
+                boundary["state_dir"], boundary["run_id"],
+                owned_changed, not_owned, "held_unrelated",
+            )
+        if not owned_changed:
+            return False  # fail-closed for this repo: nothing here is owned
+        _boundary_stage = owned_changed
+    elif os.environ.get("GO_AUTO_COMMIT_FAIL_CLOSED", "").lower() in ("1", "true", "yes"):
+        return False  # strict global: no /go pointer -> no broad auto-commit
+
     # Group changes by subsystem; commit each separately when heterogeneous.
     # Merge state and single-subsystem sets fall through to the original path.
+    # When boundary-enforced, groups are built from owned files only.
     if not _is_in_merge(cwd):
+        src_paths = _boundary_stage if _boundary_stage is not None else _get_changed_paths(cwd)
         groups: dict[str, list[str]] = {}
-        for p in _get_changed_paths(cwd):
+        for p in src_paths:
             groups.setdefault(_commit_group_key(p), []).append(p)
         if len(groups) > 1:
             return _commit_grouped(cwd, groups, transcript_path)
 
-    # Stage all changes FIRST - commit message generation needs staged diff.
-    # --ignore-removal: stage new + modified files but NEVER deletions. With
-    # concurrent sessions sharing one working tree, `add -A` swept other
-    # sessions' deletions into this session's commit (2026-07-03 incident:
-    # 124 quarantined test files). Deliberate deletions go through /git.
-    run_git_command(["add", "--ignore-removal", "."], cwd)
+    # Stage FIRST - commit message generation needs the staged diff. When
+    # boundary-enforced, stage only owned files via explicit pathspec (owned
+    # deletions included). Otherwise stage new + modified files but NEVER
+    # deletions (--ignore-removal: with concurrent sessions sharing one
+    # working tree, `add -A` swept other sessions' deletions into this
+    # session's commit; 2026-07-03 incident). Deliberate deletions go via /git.
+    if _boundary_stage is not None:
+        if not _stage_paths(cwd, _boundary_stage):
+            return False
+    else:
+        run_git_command(["add", "--ignore-removal", "."], cwd)
 
     # Re-check STAGED changes (worktree may be dirty with only deletions,
     # which we deliberately did not stage — committing then would fail).
@@ -919,14 +1102,19 @@ def run(data: dict) -> dict | None:
     """
     Stop hook entry point (in-process, via Stop_router).
 
-    Runs auto-commit for all repos with uncommitted changes.
-    Designed to be fast when nothing needs committing.
+    Runs auto-commit for all repos with uncommitted changes. When an active
+    /go run is resolvable from the payload session_id, commit-time staging is
+    bounded to that run's owned files (#1256). Designed to be fast when
+    nothing needs committing.
 
     Fail-open: a best-effort side-effect hook must never block the session.
     """
     try:
-        transcript_path = data.get("transcript_path") if isinstance(data, dict) else None
-        auto_commit_all(transcript_path)
+        payload = data if isinstance(data, dict) else {}
+        transcript_path = payload.get("transcript_path")
+        session_id = _payload_session_id(payload)
+        boundary = _resolve_go_boundary(session_id)
+        auto_commit_all(transcript_path, boundary=boundary)
     except Exception:
         pass
     return {"continue": True}
