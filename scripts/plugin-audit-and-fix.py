@@ -1177,6 +1177,7 @@ def bidir_sync(source: Path, cache: Path) -> dict:
 
 def _git_tracked_files(path: Path) -> list:
     """Return tracked files under `path` via `git -C path ls-files`. Fail-open."""
+    import subprocess
     try:
         proc = subprocess.run(
             ["git", "-C", str(path), "ls-files"],
@@ -2311,6 +2312,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--plugins", metavar="NAME", help="Filter to a specific plugin name")
     parser.add_argument("--validate", action="store_true", help="Run 'claude plugin validate' on each plugin")
     parser.add_argument("--drift", action="store_true", help="Detect source-vs-cache drift using content hash (no version comparison)")
+    parser.add_argument("--audit-runtime-state", action="store_true", help="Read-only: detect tracked runtime-state artifacts (.in_use/<PID>, .aid/, bare PID markers) across all plugins. Sources marker set from _BIDIR_SKIP_DIRS. Suggests non-destructive `git rm --cached`; does not untrack or delete.")
     parser.add_argument("--bump", metavar="PLUGIN_NAME", help="Bump patch version for a plugin in all version files")
     parser.add_argument("--force", action="store_true", help="Bump even when no source drift is detected (overrides drift precheck; use to force a cache rebuild)")
     parser.add_argument("--no-fix-paths", action="store_true", help="Skip hardcoded path auto-fix (default: on)")
@@ -2342,6 +2344,8 @@ def main(argv: list[str]) -> int:
         return _cmd_validate(args, plugins_dir)
     if args.drift:
         return _cmd_drift(plugins_dir)
+    if args.audit_runtime_state:
+        return _cmd_audit_runtime_state(plugins_dir)
     return _cmd_audit_default(args, plugins_dir, mp_root)
 
 def _cmd_inventory(args):
