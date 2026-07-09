@@ -1165,6 +1165,110 @@ def bidir_sync(source: Path, cache: Path) -> dict:
     return stats
 
 
+
+# ---------------------------------------------------------------------------
+# Runtime-state tracking audit (read-only): detects tracked loader/per-process
+# generated artifacts (.in_use/<PID>, .aid/, bare PID markers) across plugins.
+# Single source of truth for the marker set is _BIDIR_SKIP_DIRS, which already
+# declares these as "Runtime/per-terminal artifacts — must not pollute shared
+# drift/sync state." sync.STAGING_EXCLUDE_PATTERNS (skills/git/sync.py) carries
+# the same .in_use token at the staging layer.
+# ---------------------------------------------------------------------------
+
+def _git_tracked_files(path: Path) -> list:
+    """Return tracked files under `path` via `git -C path ls-files`. Fail-open."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(path), "ls-files"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    return [ln for ln in proc.stdout.splitlines() if ln.strip()]
+
+
+def runtime_state_marker_dirs():
+    """Dirs whose tracked presence means runtime state is polluting source.
+
+    Sourced from _BIDIR_SKIP_DIRS (the canonical runtime/sync-exclude list in
+    this file). We surface the subset _BIDIR_SKIP_DIRS documents as
+    'Runtime/per-terminal artifacts' (.in_use = CC per-load PID markers,
+    .aid = AI-distiller build output). The drift test asserts membership
+    against _BIDIR_SKIP_DIRS so the audit and the sync-exclude defense cannot
+    diverge silently.
+    """
+    # The runtime/per-terminal subset explicitly documented in _BIDIR_SKIP_DIRS.
+    runtime_documented = {".in_use", ".aid"}
+    return tuple(d for d in _BIDIR_SKIP_DIRS if d in runtime_documented)
+
+
+def audit_runtime_state(plugins_dir: Path) -> list:
+    """Scan every plugin's tracked files for runtime-state markers.
+
+    Read-only. Returns one finding dict per plugin with tracked runtime state:
+      {"plugin", "path", "total", "by_marker": {marker: [relpaths]}}
+    A tracked file matches if any path segment is a runtime marker dir, OR its
+    basename is a pure-digit PID marker (loader writes .in_use/<PID>).
+    """
+    markers = set(runtime_state_marker_dirs())
+    findings = []
+    for plugin in sorted(plugins_dir.iterdir()):
+        if not plugin.is_dir() or plugin.name.startswith("."):
+            continue
+        if not (plugin / ".claude-plugin" / "plugin.json").exists():
+            continue
+        tracked = _git_tracked_files(plugin)
+        if not tracked:
+            continue
+        hits = []
+        for rel in tracked:
+            parts = rel.replace("\\", "/").split("/")
+            matched = next((m for m in markers if m in parts), None)
+            if matched:
+                hits.append({"path": rel, "marker": matched})
+            elif parts[-1].isdigit():
+                hits.append({"path": rel, "marker": "PID-file"})
+        if not hits:
+            continue
+        by_marker = {}
+        for h in hits:
+            by_marker.setdefault(h["marker"], []).append(h["path"])
+        findings.append({
+            "plugin": plugin.name,
+            "path": str(plugin),
+            "total": len(hits),
+            "by_marker": {m: sorted(set(ps)) for m, ps in by_marker.items()},
+        })
+    return findings
+
+
+def _cmd_audit_runtime_state(plugins_dir: Path) -> int:
+    """Print the runtime-state tracking audit. READ-ONLY — never untracks/deletes."""
+    findings = audit_runtime_state(plugins_dir)
+    print(f"{C_CYAN}=== Runtime-State Tracking Audit ==={C_RESET}")
+    print(f"Marketplace plugins: {plugins_dir}")
+    print(f"Marker source: _BIDIR_SKIP_DIRS (runtime/per-terminal subset)")
+    if not findings:
+        print(f"{C_GREEN}PASS — 0 tracked runtime-state files across all plugins.{C_RESET}")
+        print("Physical runtime markers (.in_use/<PID>, .aid) may exist on disk; only")
+        print("TRACKED files are flagged. Untracked physical markers are allowed.")
+        return 0
+    total = sum(f["total"] for f in findings)
+    print(f"{C_RED}FAIL — {total} tracked runtime-state file(s) across {len(findings)} plugin(s):{C_RESET}")
+    for f in findings:
+        print(f"\n  {C_YELLOW}{f['plugin']}{C_RESET} ({f['path']})")
+        for marker, paths in sorted(f["by_marker"].items()):
+            cap = paths[:5]
+            extra = f" (+{len(paths) - len(cap)} more)" if len(paths) > len(cap) else ""
+            print(f"    {marker}/  ({len(paths)}): {', '.join(cap)}{extra}")
+        print(f"    suggested cleanup (non-destructive, keeps physical files):")
+        for marker in sorted(f["by_marker"]):
+            print(f"      git -C \"{f['path']}\" rm --cached -r {marker}/")
+    print(f"\n{C_RED}Verdict: FAIL — untrack the above via `git rm --cached`{C_RESET}")
+    return 1
+
 def audit_source_cache_drift(plugins_dir: Path) -> list[dict]:
     """Detect drift between source packages and their cache copies.
 
