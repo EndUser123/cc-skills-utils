@@ -319,6 +319,7 @@ class TestBumpCacheManagement:
             ret = main([
                 "prog", "--marketplace-root", str(mp),
                 "--bump", "test-pkg",
+                "--force",
             ])
 
         assert ret == 0
@@ -334,6 +335,7 @@ class TestBumpCacheManagement:
             ret = main([
                 "prog", "--marketplace-root", str(mp),
                 "--bump", "test-pkg",
+                "--force",
             ])
 
         assert ret == 0
@@ -366,6 +368,7 @@ class TestBumpCacheManagement:
             ret = main([
                 "prog", "--marketplace-root", str(mp),
                 "--bump", "test-pkg",
+                "--force",
             ])
 
         assert ret == 0
