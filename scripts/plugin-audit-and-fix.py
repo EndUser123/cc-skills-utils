@@ -2333,7 +2333,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--validate", action="store_true", help="Run 'claude plugin validate' on each plugin")
     parser.add_argument("--drift", action="store_true", help="Detect source-vs-cache drift using content hash (no version comparison)")
     parser.add_argument("--audit-runtime-state", action="store_true", help="Read-only: detect tracked runtime-state artifacts (.in_use/<PID>, .aid/, bare PID markers) across all plugins. Sources marker set from _BIDIR_SKIP_DIRS. Suggests non-destructive `git rm --cached`; does not untrack or delete.")
-    parser.add_argument("--bump", metavar="PLUGIN_NAME", help="Bump patch version for a plugin in all version files")
+    parser.add_argument("--bump", metavar="PLUGIN_NAME", help="Bump patch version for a plugin in all version files (release mode: source->cache only, never mutates source)")
+    parser.add_argument("--recover-from-cache", metavar="PLUGIN_NAME", help="Recovery mode: copy cache->source for the plugin's current cached version (explicit; does NOT bump version)")
+    parser.add_argument("--sync-dry-run", metavar="PLUGIN_NAME", help="Report source-only/cache-only/divergent/identical files for the plugin's current cached version; writes nothing")
     parser.add_argument("--force", action="store_true", help="Bump even when no source drift is detected (overrides drift precheck; use to force a cache rebuild)")
     parser.add_argument("--no-fix-paths", action="store_true", help="Skip hardcoded path auto-fix (default: on)")
     parser.add_argument("--packages-root", default=None, help="Scan source packages directory directly (e.g., P:\\\\packages/)")
@@ -2360,6 +2362,10 @@ def main(argv: list[str]) -> int:
         return _cmd_scan_name_conflicts()
     if args.bump:
         return _cmd_bump(args, plugins_dir, mp_root)
+    if args.recover_from_cache:
+        return _cmd_recover_from_cache(args, plugins_dir, mp_root)
+    if args.sync_dry_run:
+        return _cmd_sync_dry_run(args, plugins_dir, mp_root)
     if args.validate:
         return _cmd_validate(args, plugins_dir)
     if args.drift:
@@ -2663,6 +2669,86 @@ def _cmd_scan_name_conflicts():
             print(f"  [{c['type']}] {c['name']}: {c['issue']}")
     else:
         print(f"{C_GREEN}No name conflicts found.{C_RESET}")
+    return 0
+
+
+def _latest_cache_version_dir(cache_root: Path, pkg_name: str) -> Path | None:
+    """Newest version-keyed cache dir for pkg_name, or None."""
+    base = cache_root / pkg_name
+    if not base.exists():
+        return None
+    version_dirs = sorted(
+        [d for d in base.iterdir() if d.is_dir()],
+        key=_version_key, reverse=True,
+    )
+    return version_dirs[0] if version_dirs else None
+
+
+def _cmd_recover_from_cache(args, plugins_dir: Path, mp_root: str) -> int:
+    """Explicit cache->source recovery. Does NOT bump the version.
+
+    Copies cache files into source (quality-gated; cache wins divergent) for
+    the plugin's current cached version. Emits a recovery report. This is the
+    ONLY documented path that mutates source from cache -- --bump cannot.
+    """
+    pkg_name = args.recover_from_cache
+    src = plugins_dir / pkg_name
+    cache_root = _cache_dir_for_plugin(pkg_name)
+    version_dir = _latest_cache_version_dir(cache_root, pkg_name)
+    print(f"{C_CYAN}=== Cache Recovery ==={C_RESET}\nPlugin: {pkg_name}")
+    if not src.exists():
+        print(f"{C_RED}Source not found: {src}{C_RESET}")
+        return 1
+    if not version_dir or not version_dir.exists():
+        print(f"{C_RED}No cached version found for {pkg_name} under {cache_root}{C_RESET}")
+        return 1
+    print(f"Source: {src}\nCache:  {version_dir} (RECOVERY — cache wins divergent)")
+    stats = bidir_sync(src, version_dir, direction="cache_to_source_only")
+    if stats["errors"]:
+        for err in stats["errors"]:
+            print(f"  {C_RED}{err}{C_RESET}")
+    copied = []
+    for rel in sorted(set(stats["cache_only"]) | set(stats["divergent"])):
+        # Files actually copied cache->source are those in cache_only (quality-gated)
+        # plus divergent (cache wins in recovery mode).
+        copied.append(rel)
+    print(f"\n{C_GREEN}Recovered {stats['cache_to_src']} file(s) cache->source:{C_RESET}")
+    for rel in copied:
+        print(f"  - {rel}")
+    if stats["skipped"]:
+        print(f"{C_YELLOW}Skipped {stats['skipped']} cache-only file(s) with quality issues (not copied){C_RESET}")
+    print(f"\nsource_mutated: {stats['source_mutated']} | direction: {stats['direction']} | version bump: NO")
+    return 0 if not stats["errors"] else 1
+
+
+def _cmd_sync_dry_run(args, plugins_dir: Path, mp_root: str) -> int:
+    """Dry-run: classify source/cache files; write nothing."""
+    pkg_name = args.sync_dry_run
+    src = plugins_dir / pkg_name
+    cache_root = _cache_dir_for_plugin(pkg_name)
+    version_dir = _latest_cache_version_dir(cache_root, pkg_name)
+    print(f"{C_CYAN}=== Sync Dry-Run (writes nothing) ==={C_RESET}\nPlugin: {pkg_name}")
+    if not src.exists():
+        print(f"{C_RED}Source not found: {src}{C_RESET}")
+        return 1
+    if not version_dir or not version_dir.exists():
+        print(f"{C_RED}No cached version found for {pkg_name} under {cache_root}{C_RESET}")
+        return 1
+    stats = bidir_sync(src, version_dir, direction="dry_run")
+    print(f"Source: {src}\nCache:  {version_dir}\n")
+    print(f"identical:    {stats['identical']}")
+    print(f"source-only:  {len(stats['source_only'])}")
+    for rel in stats["source_only"]:
+        print(f"  + {rel}  (would copy src->cache on --bump)")
+    print(f"cache-only:   {len(stats['cache_only'])}")
+    for rel in stats["cache_only"]:
+        print(f"  + {rel}  (recoverable via --recover-from-cache; NOT touched on --bump)")
+    print(f"divergent:    {len(stats['divergent'])}")
+    for rel in stats["divergent"]:
+        print(f"  ! {rel}  (--bump: src wins; --recover-from-cache: cache wins)")
+    proposed = "source_to_cache_only" if (stats["source_only"] or stats["divergent"]) else "none"
+    print(f"\nproposed direction for --bump: {proposed}")
+    print(f"wrote: NOTHING (dry_run={stats['dry_run']})")
     return 0
 
 
