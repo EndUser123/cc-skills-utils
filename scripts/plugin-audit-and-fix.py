@@ -2208,6 +2208,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--validate", action="store_true", help="Run 'claude plugin validate' on each plugin")
     parser.add_argument("--drift", action="store_true", help="Detect source-vs-cache drift using content hash (no version comparison)")
     parser.add_argument("--bump", metavar="PLUGIN_NAME", help="Bump patch version for a plugin in all version files")
+    parser.add_argument("--force", action="store_true", help="Bump even when no source drift is detected (overrides drift precheck; use to force a cache rebuild)")
     parser.add_argument("--no-fix-paths", action="store_true", help="Skip hardcoded path auto-fix (default: on)")
     parser.add_argument("--packages-root", default=None, help="Scan source packages directory directly (e.g., P:\\\\packages/)")
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
@@ -2542,6 +2543,17 @@ def _cmd_bump(args, plugins_dir, mp_root):
         if not locked:
             print(f"  {C_RED}ERROR: could not acquire bump lock within {_BUMP_LOCK_TIMEOUT}s — another terminal is bumping. Retry.{C_RESET}")
             return 1
+        # Drift precheck: skip bump if source == cache (no real drift), unless --force.
+        # Prevents accidental multi-bump (e.g. re-running --bump in a loop when one
+        # bump already synced source→cache). --force overrides for intentional rebuilds.
+        if not getattr(args, "force", False):
+            drift_findings = audit_source_cache_drift(plugins_dir)
+            real_drift = [f for f in drift_findings
+                          if f.get("plugin") == args.bump and f.get("type") != "stale_version_dirs"]
+            if not real_drift:
+                print(f"  {C_YELLOW}No source drift for '{args.bump}' — skipping bump (source == cache).{C_RESET}")
+                print(f"  {C_YELLOW}Pass --force to bump anyway.{C_RESET}")
+                return 0
         bump_result = bump_version(plugins_dir, mp_root, args.bump)
         if bump_result["errors"]:
             for e in bump_result["errors"]:
