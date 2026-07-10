@@ -1008,9 +1008,12 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
             add_cmd.append(f":(exclude){pattern}")
         add_result = run(add_cmd, cwd=worktree, silent=True)
         if add_result.returncode != 0 and "index.lock" in add_result.stderr:
-            # Concurrent git process — wait briefly and retry (common during health check parallel workers)
-            time.sleep(0.5)
-            add_result = run("git add -A", cwd=worktree, silent=True)
+            # Concurrent git process — retry with exponential backoff
+            for delay in [0.5, 1.0, 2.0]:
+                time.sleep(delay)
+                add_result = run("git add -A", cwd=worktree, silent=True)
+                if add_result.returncode == 0:
+                    break
         if add_result.returncode != 0:
             print(f"  X git add failed ({add_result.stderr.strip()[:100] if add_result.stderr else 'unknown error'}), leaving dirty state")
             break
@@ -1034,8 +1037,16 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
             if "nothing to commit" in err_l or "no changes added to commit" in err_l:
                 break
             if "index.lock" in err_l:
-                # Concurrent git process — wait and retry
-                time.sleep(0.5)
+                # Concurrent git process — retry with exponential backoff
+                for delay in [0.5, 1.0, 2.0]:
+                    time.sleep(delay)
+                    commit_result = run(["git", "commit", "-m", commit_msg], cwd=worktree, silent=True)
+                    if commit_result.returncode == 0:
+                        did_commit = True
+                        break
+                if commit_result.returncode == 0:
+                    break  # committed after retry
+                # All retries exhausted — full re-stage-and-commit cycle
                 continue
             print(f"  X Commit failed ({err.strip()[:100] or 'unknown error'}), leaving dirty state for manual resolution")
             break
