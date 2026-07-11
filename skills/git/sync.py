@@ -987,10 +987,22 @@ def sync_single_repo(repo: RepoInfo, is_main: bool = False) -> Tuple[bool, bool]
     """
     worktree = repo.path
 
-    # Ensure clean state — remove any stale index.lock before starting
+    # Ensure clean state — remove any stale index.lock before starting.
+    # If another git process is actively holding the lock (common in multi-terminal
+    # sessions), retry with exponential backoff, then give up.
     lock_file = Path(worktree) / ".git" / "index.lock"
     if lock_file.exists():
-        lock_file.unlink()
+        removed = False
+        for delay in [0.3, 0.7, 1.5]:
+            try:
+                lock_file.unlink()
+                removed = True
+                break
+            except PermissionError:
+                time.sleep(delay)
+        if not removed:
+            print(f"  X index.lock held by concurrent git process(es), leaving dirty state")
+            return (False, False)
 
     did_commit = False
 
