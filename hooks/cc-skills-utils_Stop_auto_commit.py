@@ -959,10 +959,6 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     if not is_git_repo(cwd):
         return False
 
-    # Skip auto-commit in worktrees (scratchpads, isolated environments)
-    if is_worktree(cwd):
-        return False
-
     # Check for uncommitted changes
     if not has_uncommitted_changes(cwd):
         return False
