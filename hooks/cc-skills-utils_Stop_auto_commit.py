@@ -941,6 +941,78 @@ def _should_commit_now(cwd: Path, candidate: list[str] | None = None) -> bool:
     return False
 
 
+# --- Concurrent-session fail-closed gate ---
+# Reads the session registry (populated by snapshot_SessionStart_identity_capture)
+# to detect whether another live session shares this repo. If so, auto-commit
+# is skipped unless the caller has explicit /go ownership (boundary is not None).
+# This prevents one session from capturing another session's in-progress files
+# via whole-tree git add. Fail-open on any error.
+
+_CONCURRENT_SESSION_TTL = 300  # seconds — heartbeat window from ADR-008
+
+
+def _other_session_active(cwd: Path) -> bool:
+    """True if another live session is registered on the same repo path.
+
+    Reads session_registry.jsonl fresh from disk. Entries older than
+    _CONCURRENT_SESSION_TTL are treated as stale (session exited without
+    SessionStop). Fail-open: any error returns False (solo assumption).
+    """
+    try:
+        # Resolve registry path: .claude/.artifacts/session_registry.jsonl
+        # relative to cwd (fleet root) or CLAUDE_PROJECT_DIR
+        project_root = Path(os.environ.get("CLAUDE_PROJECT_DIR", str(cwd)))
+        registry_path = project_root / ".claude" / ".artifacts" / "session_registry.jsonl"
+        if not registry_path.exists():
+            return False
+
+        my_session = os.environ.get("CLAUDE_SESSION_ID", "")
+        now = time.time()
+        cwd_resolved = cwd.resolve()
+
+        for line in registry_path.read_text(encoding="utf-8-sig").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except (ValueError, json.JSONDecodeError):
+                continue
+
+            # Skip self
+            if entry.get("session_id") == my_session:
+                continue
+
+            # Skip entries for different repos
+            entry_cwd = entry.get("cwd", "")
+            if entry_cwd:
+                try:
+                    if Path(entry_cwd).resolve() != cwd_resolved:
+                        continue
+                except (OSError, ValueError):
+                    continue
+
+            # Check freshness via timestamp
+            ts = entry.get("ts") or entry.get("started_at") or ""
+            if ts:
+                try:
+                    # Handle ISO format with optional timezone suffix
+                    clean_ts = ts.replace("Z", "+00:00")
+                    entry_time = datetime.fromisoformat(clean_ts).timestamp()
+                    if now - entry_time > _CONCURRENT_SESSION_TTL:
+                        continue  # stale entry — session likely exited
+                except (ValueError, OSError):
+                    continue  # can't parse timestamp — skip entry
+            else:
+                continue  # no timestamp — can't assess freshness
+
+            return True  # found a live concurrent session
+
+        return False
+    except Exception:
+        return False  # fail-open: any error means "assume solo"
+
+
 def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = None, boundary: dict | None = None) -> bool:
     """
     Auto-commit and push uncommitted changes.
@@ -957,6 +1029,16 @@ def auto_commit(cwd: Path, do_push: bool = False, transcript_path: str | None = 
     """
     # Check if we're in a git repo
     if not is_git_repo(cwd):
+        return False
+
+    # Concurrent-session fail-closed: when another live session shares this
+    # repo, skip auto-commit unless the caller has explicit /go ownership.
+    # This prevents foreign-capture (one session staging another session's
+    # in-progress files via whole-tree git add). When alone, auto-commit
+    # runs as before. The check reads the session registry fresh each Stop
+    # — no cached flag, immune to stale data. Fail-open on any error so a
+    # registry problem never blocks a solo session.
+    if boundary is None and _other_session_active(cwd):
         return False
 
     # Check for uncommitted changes
