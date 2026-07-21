@@ -1,36 +1,16 @@
---- a/qmd/cli/main.py
-+++ b/qmd/cli/main.py
-@@ -113,8 +113,11 @@ def cmd_search(args: argparse.Namespace) -> int:
-     from qmd.cli.formatter import format_search_results
-
-     db, store = create_store(args.db)
-+    # Create LLM backend for semantic vector search (without it, search is BM25-only)
-+    llm_backend = create_llm_backend(getattr(args, "backend", "auto"))
-     try:
-         # query command logs deep search
-@@ -123,7 +126,7 @@ def cmd_search(args: argparse.Namespace) -> int:
-         collections = [args.collection] if args.collection else None
--        results = search(db, args.query, collection=collections[0] if collections else None, limit=args.limit)
-+        results = search(db, args.query, collection=collections[0] if collections else None, limit=args.limit, llm_backend=llm_backend)
-
-         if not results:
-             print("No matching documents found")
-
 # =============================================================================
 # Owner: csf-utils (cc-skills-utils plugin)
 # Pin: qmd==0.1.1 (do NOT auto-upgrade; reinstall loses this patch)
 # Why: upstream qmd-py v0.1.1 cmd_search() calls search() without an llm_backend.
 #   Without llm_backend, search() in retrieval.py guards vector search behind
-#   `if llm_backend` and skips it — every `qmd search` is BM25-only despite
+#   `if llm_backend` and skips it - every `qmd search` is BM25-only despite
 #   embeddings existing in the DB. Semantic search silently degrades to keyword
 #   match. This patch constructs the backend explicitly and passes it through.
 # Pre-existing state note: this patch assumes the surrounding code is in the
 #   English-translated state that already lives in this operator's
 #   site-packages. A fresh `pip install qmd==0.1.1` produces Chinese upstream;
 #   apply the translation layer first (or hand-apply the two inserted lines +
-#   the one modified `search(...)` call manually). The functional change is
-#   minimal and identifiable by the comment "Create LLM backend for semantic
-#   vector search (without it, search is BM25-only)".
+#   the one modified `search(...)` call manually).
 # Re-apply after any `pip install --upgrade qmd` / Python reinstall:
 #   cd <site-packages>/qmd/cli && git apply <this file>
 #   (or hand-add the two `+` lines and update the search() call)
@@ -39,3 +19,23 @@
 # Source: /design run 10d616f8 (2026-07-20). See
 #   P:/.data/wiki/concepts/qmd-patch-durability-strategy.md
 # =============================================================================
+
+--- a/qmd/cli/main.py
++++ b/qmd/cli/main.py
+@@ -113,13 +113,15 @@
+     from qmd.cli.formatter import format_search_results
+ 
+     db, store = create_store(args.db)
++    # Create LLM backend for semantic vector search (without it, search is BM25-only)
++    llm_backend = create_llm_backend(getattr(args, "backend", "auto"))
+     try:
+         # query command logs deep search
+         if args.command == "query":
+             logger.info("Executing deep search (hybrid + rerank)")
+ 
+         collections = [args.collection] if args.collection else None
+-        results = search(db, args.query, collection=collections[0] if collections else None, limit=args.limit)
++        results = search(db, args.query, collection=collections[0] if collections else None, limit=args.limit, llm_backend=llm_backend)
+ 
+         if not results:
+             print("No matching documents found")
