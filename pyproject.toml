@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"'). Used by test_qmd_search_smoke.py to keep the default pytest run <1s.",
+]
