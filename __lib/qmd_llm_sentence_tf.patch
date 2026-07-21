@@ -1,0 +1,33 @@
+--- a/qmd/llm/sentence_tf.py
++++ b/qmd/llm/sentence_tf.py
+@@ -37,7 +37,7 @@ class SentenceTransformerBackend(BaseLLMBackend):
+     def __init__(
+         self,
+-        model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
++        model_name: str = "all-mpnet-base-v2",
+         device: str | None = None,
+     ):
+
+# =============================================================================
+# Owner: csf-utils (cc-skills-utils plugin)
+# Pin: qmd==0.1.1 (do NOT auto-upgrade; reinstall loses this patch)
+# Why: upstream qmd-py v0.1.1 defaults to `paraphrase-multilingual-MiniLM-L12-v2`
+#   which is a weaker model than the locally-available `all-mpnet-base-v2`
+#   (768-dim, best English semantic similarity, Materially stronger retrieval
+#   quality on this operator's wiki corpus). The wiki DB has been rebuilt with
+#   the new model; reverting to the upstream default would silently make every
+#   embedding mismatched with the stored vectors.
+# Pre-existing state note: same as qmd_cli_main.patch — this patch assumes the
+#   surrounding code is in the English-translated state. A fresh upstream
+#   install is Chinese; the one-line change applies cleanly either way (it's
+#   a single default-value swap with no surrounding text dependence).
+# Re-apply after any `pip install --upgrade qmd` / Python reinstall:
+#   cd <site-packages>/qmd/llm && git apply <this file>
+#   (or hand-swap the default value on the `model_name` parameter)
+# Verify:
+#   python -c "from qmd.llm.sentence_tf import SentenceTransformerBackend; import inspect; src = inspect.getsource(SentenceTransformerBackend.__init__); assert 'all-mpnet-base-v2' in src, 'patch missing'"
+# DB rebuild (required if reverting from a different model):
+#   qmd embed --collection wiki --force
+# Source: /design run 10d616f8 (2026-07-20). See
+#   P:/.data/wiki/concepts/qmd-patch-durability-strategy.md
+# =============================================================================
